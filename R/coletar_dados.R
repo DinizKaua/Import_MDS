@@ -5,7 +5,7 @@ suppressPackageStartupMessages({
 })
 
 # -------------------------------
-#   Parse de argumentos (--param valor)
+# Parse de argumentos (--param valor)
 # -------------------------------
 parse_args <- function(args) {
   out <- list()
@@ -26,7 +26,7 @@ parse_args <- function(args) {
 args <- parse_args(commandArgs(trailingOnly = TRUE))
 
 # -------------------------------
-#   Parâmetros com fallback
+# Parâmetros
 # -------------------------------
 sistema <- if (!is.null(args$system)) args$system else "SIM-DO"
 ano_inicio <- as.numeric(if (!is.null(args$year_start)) args$year_start else 2020)
@@ -36,25 +36,25 @@ mes_fim <- as.numeric(if (!is.null(args$month_end)) args$month_end else 12)
 uf <- if (!is.null(args$uf)) toupper(args$uf) else "ALL"
 sexo <- if (!is.null(args$sexo)) args$sexo else "ALL"
 cid <- if (!is.null(args$cid)) toupper(args$cid) else "ALL"
+raca <- if (!is.null(args$raca)) args$raca else "ALL"
+faixa <- if (!is.null(args$faixa)) args$faixa else "ALL"
 
 # -------------------------------
-#   Tratamento UF (corrige erro do ifelse)
+# Tratamento UF
 # -------------------------------
-if (uf == "ALL") {
-  uf_param <- NULL
-} else {
-  uf_param <- uf
-}
+uf_param <- if (uf == "ALL") NULL else uf
 
-cat("Parâmetros recebidos:\n")
+cat("Parâmetros:\n")
 cat("Sistema:", sistema, "\n")
 cat("Período:", ano_inicio, "-", ano_fim, "\n")
 cat("UF:", uf, "\n")
 cat("Sexo:", sexo, "\n")
+cat("Raça:", raca, "\n")
+cat("Faixa:", faixa, "\n")
 cat("CID:", cid, "\n\n")
 
 # -------------------------------
-#   Download dos dados
+# Download
 # -------------------------------
 dados_brutos <- fetch_datasus(
   year_start = ano_inicio,
@@ -66,85 +66,110 @@ dados_brutos <- fetch_datasus(
 )
 
 # -------------------------------
-#   Processamento
+# Processamento
 # -------------------------------
 if (grepl("^SIM", sistema)) {
 
   dados <- process_sim(dados_brutos) %>%
     mutate(
       data_evento = as.Date(DTOBITO),
-      cid_valor = toupper(CAUSABAS)
-    )
-
-} else if (sistema == "SIH-RD") {
-
-  dados <- process_sih(dados_brutos)
-
-  # Detecta colunas automaticamente
-  date_col <- intersect(c("DT_INTER", "DT_INTERNA", "DT_ENTRADA"), colnames(dados))[1]
-  cid_col <- intersect(c("DIAG_PRINC", "CIDPRI"), colnames(dados))[1]
-
-  dados <- dados %>%
-    mutate(
-      data_evento = as.Date(.data[[date_col]]),
-      cid_valor = toupper(.data[[cid_col]])
+      cid_valor = toupper(CAUSABAS),
+      IDADE_NUM = as.numeric(IDADEanos)
     )
 
 } else {
-  stop("Sistema não suportado ainda.")
+  stop("Sistema não suportado (use SIM-DO).")
 }
 
-# Remove dados sem data
-dados <- dados %>% filter(!is.na(data_evento))
+# Remove sem data e garante 18+
+dados <- dados %>%
+  filter(!is.na(data_evento)) %>%
+  filter(!is.na(IDADE_NUM) & IDADE_NUM >= 18)
 
 # -------------------------------
-#   FILTROS
+# FILTROS
 # -------------------------------
 
-# Sexo
 if (sexo != "ALL") {
   dados <- dados %>% filter(SEXO == sexo)
 }
 
-# CID (prefixo)
+if (raca != "ALL") {
+  dados <- dados %>% filter(RACACOR == raca)
+}
+
+# Faixa etária 
+if (faixa != "ALL") {
+
+  if (faixa == "18-39") {
+    dados <- dados %>% filter(IDADE_NUM >= 18 & IDADE_NUM <= 39)
+  } else if (faixa == "40-59") {
+    dados <- dados %>% filter(IDADE_NUM >= 40 & IDADE_NUM <= 59)
+  } else if (faixa == "60+") {
+    dados <- dados %>% filter(IDADE_NUM >= 60)
+  }
+}
+
 if (cid != "ALL") {
   dados <- dados %>%
     filter(startsWith(cid_valor, cid))
 }
 
 # -------------------------------
-#   Nome do arquivo inteligente
+# SELEÇÃO FINAL
+# -------------------------------
+dados_final <- dados %>%
+  select(any_of(c(
+    "IDADEanos",
+    "DTNASC",
+    "ESTCIV",
+    "SEXO",
+    "RACACOR",
+    "LOCOCOR",
+    "CODESTAB",
+    "data_evento",
+    "munResUf",
+    "munResNome",
+    "NATURAL",
+    "CODMUNNATU",
+    "ASSISTMED",
+    "cid_valor"
+  ))) %>%
+  rename(
+    IDADE = IDADEanos,
+    DATA_DE_NASCIMENTO = DTNASC,
+    ESTADO_CIVIL = ESTCIV,
+    RACA_COR = RACACOR,
+    LOCAL_OBITO = LOCOCOR,
+    ESTABELECIMENTO = CODESTAB,
+    DATA = data_evento,
+    ESTADO_RESIDENCIA = munResUf,
+    MUNICIPIO_RESIDENCIA = munResNome,
+    ESTADO_NATURALIDADE = NATURAL,
+    MUNICIPIO_NATURALIDADE = CODMUNNATU,
+    ASSISTENCIA_MEDICA = ASSISTMED,
+    DOENCA = cid_valor
+  )
+
+# -------------------------------
+# Nome do arquivo
 # -------------------------------
 nome_arquivo <- paste0(
   "dados_",
   sistema, "_",
   ifelse(is.null(uf_param), "BR", uf_param), "_",
-  ano_inicio, "_", ano_fim,
-  ifelse(cid != "ALL", paste0("_", cid), ""),
-  ifelse(sexo != "ALL", paste0("_", sexo), ""),
-  ".csv"
+  ano_inicio, "_", ano_fim
 )
 
-# -------------------------------
-#   SELEÇÃO E PADRONIZAÇÃO
-# -------------------------------
+if (cid != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", cid)
+if (sexo != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", sexo)
+if (raca != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", raca)
+if (faixa != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", faixa)
 
-dados_final <- dados %>%
-  mutate(
-    ANO = lubridate::year(data_evento)
-  ) %>%
-  select(
-    IDADE = IDADEanos,
-    SEXO,
-    RACA_COR = RACACOR,
-    ESTADO = munResUf,
-    MUNICIPIO = munResNome,
-    ANO,
-    DOENCA = cid_valor
-  )
+nome_arquivo <- paste0(nome_arquivo, ".csv")
 
 # -------------------------------
-#   Exportação
+# Exportação
 # -------------------------------
 write.csv(dados_final, nome_arquivo, row.names = FALSE)
 

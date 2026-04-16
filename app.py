@@ -87,6 +87,50 @@ def escolher_doenca():
 
     return valor
 
+# -------------------------------
+#   Raça/Cor
+# -------------------------------
+def escolher_raca():
+    print("\nFiltrar por raça/cor?")
+    print("1 - Branca")
+    print("2 - Preta")
+    print("3 - Parda")
+    print("4 - Amarela")
+    print("5 - Indígena")
+    print("6 - Não filtrar")
+
+    opcao = input("Escolha: ")
+
+    mapa = {
+        "1": "Branca",
+        "2": "Preta",
+        "3": "Parda",
+        "4": "Amarela",
+        "5": "Indigena"
+    }
+
+    return mapa.get(opcao, "ALL")
+
+# -------------------------------
+#   Faixa Etária
+# -------------------------------
+def escolher_faixa_etaria():
+    print("\nFiltrar por faixa etária?")
+    print("1 - 18 a 39")
+    print("2 - 40 a 59")
+    print("3 - 60+")
+    print("4 - Não filtrar")
+
+    opcao = input("Escolha: ")
+
+    if opcao == "1":
+        return "18-39"
+    elif opcao == "2":
+        return "40-59"
+    elif opcao == "3":
+        return "60+"
+    else:
+        return "ALL"
 
 # -------------------------------
 #   Execução principal
@@ -98,7 +142,10 @@ def main():
     ano_inicio, ano_fim, mes_inicio, mes_fim = escolher_periodo()
     uf = escolher_estado()
     sexo = escolher_sexo()
+    raca = escolher_raca()
+    faixa = escolher_faixa_etaria()
     doenca = escolher_doenca()
+
 
     print("\nExecutando coleta...\n")
 
@@ -112,7 +159,9 @@ def main():
             "--month_end", mes_fim,
             "--uf", uf,
             "--sexo", sexo,
-            "--cid", doenca
+            "--cid", doenca,
+            "--raca", raca,
+            "--faixa", faixa
         ], check=True)
 
         print("\nDados coletados com sucesso!")
