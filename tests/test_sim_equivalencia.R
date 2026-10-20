@@ -98,6 +98,8 @@ executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
   # tipos e demais atributos da saída legada, sem mudar resultados esperados.
   attr(resultado, "contagens_etarias") <- NULL
   attr(resultado, "contagens_datas") <- NULL
+  attr(resultado, "contagens_naturalidade") <- NULL
+  attr(resultado, "auditoria_naturalidade") <- NULL
   resultado
 }
 

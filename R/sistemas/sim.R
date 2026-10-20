@@ -149,6 +149,88 @@ resolver_limites_idade_sim <- function(idade_min = NULL, idade_max = NULL,
   list(idade_min = idade_min, idade_max = idade_max)
 }
 
+# Converte somente a naturalidade, sem junções com os microdados. A tabela
+# oficial é lida sem modificações. Repetições idênticas na referência produzem
+# uma tradução; descrições distintas produzem NA, sem escolher a primeira.
+# NA/vazio/espaços são ausências; códigos são comparados sem limpeza ou coerção.
+converter_naturalidade_sim <- function(codigos, tabela = microdatasus::tabNaturalidade) {
+  if (!is.character(codigos) || is.object(codigos) || !is.null(dim(codigos))) {
+    stop("NATURAL deve ser um vetor de caracteres, preservando os códigos originais.")
+  }
+  if (!is.data.frame(tabela) || anyDuplicated(names(tabela)) ||
+      !all(c("cod", "nome") %in% names(tabela)) ||
+      !is.character(tabela$cod) || is.object(tabela$cod) || !is.null(dim(tabela$cod)) ||
+      !is.character(tabela$nome) || is.object(tabela$nome) || !is.null(dim(tabela$nome))) {
+    stop("Tabela de naturalidade deve conter cod e nome como colunas de caracteres.")
+  }
+  ausente <- function(x) is.na(x) | x == "" | grepl("\\A +\\z", x, perl = TRUE)
+  chave_ausente <- ausente(tabela$cod)
+  descricao_ausente <- ausente(tabela$nome)
+  chaves <- tabela$cod[!chave_ausente]
+  chaves <- chaves[!duplicated(chaves)] # Apenas a referência, nunca os microdados.
+  mapa <- data.frame(codigo = chaves, descricao = rep(NA_character_, length(chaves)),
+                     situacao = rep("sem_correspondencia", length(chaves)),
+                     motivo = rep("descricao_ausente_na_tabela", length(chaves)),
+                     stringsAsFactors = FALSE)
+  repetidas <- identicas <- conflitantes <- 0L
+  for (i in seq_along(chaves)) {
+    linhas <- which(!chave_ausente & tabela$cod == chaves[i])
+    descricoes <- tabela$nome[linhas[!descricao_ausente[linhas]]]
+    descricoes <- descricoes[!duplicated(descricoes)]
+    repetidas <- repetidas + as.integer(length(linhas) > 1L)
+    if (length(descricoes) > 1L) {
+      mapa$situacao[i] <- "ambigua"
+      mapa$motivo[i] <- "descricoes_conflitantes"
+      conflitantes <- conflitantes + 1L
+    } else if (length(descricoes) == 1L) {
+      # Mesma normalização Unicode aplicada ao texto pelo processador oficial.
+      mapa$descricao[i] <- stringi::stri_unescape_unicode(descricoes)
+      mapa$situacao[i] <- "inequivoca"
+      mapa$motivo[i] <- if (any(descricao_ausente[linhas])) {
+        "descricao_unica_com_ausencias_na_tabela"
+      } else if (length(linhas) > 1L) {
+        identicas <- identicas + 1L
+        "descricoes_identicas_repetidas"
+      } else "correspondencia_unica"
+    }
+  }
+  if (anyNA(mapa$descricao[mapa$situacao == "inequivoca"])) {
+    stop("Não foi possível normalizar uma descrição inequívoca de naturalidade.")
+  }
+  resultado <- data.frame(
+    naturalidade_codigo_original = unname(codigos),
+    naturalidade_descricao = rep(NA_character_, length(codigos)),
+    naturalidade_situacao = rep("sem_correspondencia", length(codigos)),
+    naturalidade_motivo = rep("codigo_nao_encontrado", length(codigos)),
+    stringsAsFactors = FALSE
+  )
+  falta <- ausente(codigos)
+  posicoes <- match(codigos, mapa$codigo)
+  encontrados <- which(!falta & !is.na(posicoes))
+  resultado$naturalidade_descricao[encontrados] <- mapa$descricao[posicoes[encontrados]]
+  resultado$naturalidade_situacao[encontrados] <- mapa$situacao[posicoes[encontrados]]
+  resultado$naturalidade_motivo[encontrados] <- mapa$motivo[posicoes[encontrados]]
+  resultado$naturalidade_situacao[falta] <- "ausente"
+  resultado$naturalidade_motivo[is.na(codigos)] <- "codigo_ausente_na"
+  resultado$naturalidade_motivo[!is.na(codigos) & codigos == ""] <- "codigo_ausente_vazio"
+  resultado$naturalidade_motivo[!is.na(codigos) & grepl("\\A +\\z", codigos, perl = TRUE)] <- "codigo_ausente_espacos"
+  attr(resultado, "diagnostico_tabela") <- list(
+    linhas = nrow(tabela), chaves_ausentes = sum(chave_ausente),
+    descricoes_ausentes = sum(descricao_ausente), codigos = nrow(mapa),
+    chaves_repetidas = repetidas, chaves_conflitantes = conflitantes,
+    chaves_com_repeticoes_identicas = identicas
+  )
+  resultado
+}
+
+contar_naturalidade_sim <- function(dados) {
+  list(total = nrow(dados),
+       inequivocas = sum(dados$naturalidade_situacao == "inequivoca"),
+       ambiguas = sum(dados$naturalidade_situacao == "ambigua"),
+       sem_correspondencia = sum(dados$naturalidade_situacao == "sem_correspondencia"),
+       ausentes = sum(dados$naturalidade_situacao == "ausente"))
+}
+
 # Não faz junções: exige uma correspondência bijetiva pelos identificadores
 # temporários e restaura a ordem original antes de anexar idades e datas brutas
 # validadas. As duas funções de validação preservam a ordem e a cardinalidade.
@@ -172,9 +254,13 @@ processar_dados_sim <- function(dados_brutos) {
   if (!"DTOBITO" %in% names(dados_brutos)) {
     stop("Dados brutos do SIM devem conter a coluna DTOBITO original.")
   }
+  if (!"NATURAL" %in% names(dados_brutos)) {
+    stop("Dados brutos do SIM devem conter a coluna NATURAL original.")
+  }
   idades <- normalizar_idade_sim(dados_brutos$IDADE)
   datas <- validar_data_obito_sim(dados_brutos$DTOBITO)
-  validacoes <- cbind(idades, datas)
+  naturalidades <- converter_naturalidade_sim(dados_brutos$NATURAL)
+  validacoes <- cbind(idades, datas, naturalidades)
   reservadas <- c(".import_mds_registro_id", names(validacoes))
   if (any(reservadas %in% names(dados_brutos))) {
     stop("Dados brutos do SIM contêm colunas reservadas para associação de registros.")
@@ -182,9 +268,13 @@ processar_dados_sim <- function(dados_brutos) {
   ids <- as.character(seq_len(nrow(dados_brutos)))
   dados_trabalho <- as.data.frame(dados_brutos)
   dados_trabalho$.import_mds_registro_id <- ids
+  # NATURAL só é referenciada pelo pacote em sua junção de naturalidade.
+  # Retirá-la desta cópia impede a expansão sem mudar o restante do processador.
+  dados_trabalho$NATURAL <- NULL
   dados <- microdatasus::process_sim(dados_trabalho)
   associar_validacoes_sim(dados, ids, validacoes) |>
     dplyr::mutate(
+      NATURAL = naturalidade_descricao,
       data_evento = data_obito_validada,
       cid_valor = toupper(CAUSABAS),
       IDADE_NUM = as.numeric(IDADEanos)
@@ -196,6 +286,7 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
                               idade_min = NULL, idade_max = NULL) {
   limites <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
   entrada <- nrow(dados)
+  contagens_naturalidade <- list(antes_filtros = contar_naturalidade_sim(dados))
   # Categorias de data anteriores a qualquer filtro. A validação não exclui
   # registros; datas ausentes/inválidas seguem para todos os filtros existentes.
   contagens_datas <- list(
@@ -236,6 +327,7 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
   )
   dados <- dados[manter, , drop = FALSE]
   contagens_datas$apos_filtro_etario <- nrow(dados)
+  contagens_naturalidade$apos_filtro_etario <- nrow(dados)
 
   if (sexo != "ALL") {
     dados <- dplyr::filter(dados, SEXO == sexo)
@@ -251,8 +343,10 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
 
   contagens$apos_demais_filtros <- nrow(dados)
   contagens_datas$apos_demais_filtros <- nrow(dados)
+  contagens_naturalidade$apos_demais_filtros <- contar_naturalidade_sim(dados)
   attr(dados, "contagens_etarias") <- contagens
   attr(dados, "contagens_datas") <- contagens_datas
+  attr(dados, "contagens_naturalidade") <- contagens_naturalidade
   dados
 }
 
@@ -304,5 +398,17 @@ preparar_exportacao_sim <- function(dados_brutos, sexo = "ALL", raca = "ALL",
   contagens_datas <- attr(dados, "contagens_datas")
   contagens_datas$total_final_exportavel <- nrow(resultado)
   attr(resultado, "contagens_datas") <- contagens_datas
+  attr(resultado, "contagens_naturalidade") <- attr(dados, "contagens_naturalidade")
+  # A posição é calculada APÓS os filtros, inclusive para duplicatas legítimas.
+  # Estes atributos não são persistidos no CSV legado. A publicação consistente
+  # de principal + auxiliar ainda precisa ser resolvida antes de uso em produção.
+  attr(resultado, "auditoria_naturalidade") <- data.frame(
+    posicao_csv = seq_len(nrow(dados)), registro_id = dados$.import_mds_registro_id,
+    naturalidade_codigo_original = dados$naturalidade_codigo_original,
+    naturalidade_descricao = dados$naturalidade_descricao,
+    naturalidade_situacao = dados$naturalidade_situacao,
+    naturalidade_motivo = dados$naturalidade_motivo,
+    stringsAsFactors = FALSE
+  )
   resultado
 }

@@ -9,6 +9,8 @@ local({
   sem_contagens <- function(x) {
     attr(x, "contagens_etarias") <- NULL
     attr(x, "contagens_datas") <- NULL
+    attr(x, "contagens_naturalidade") <- NULL
+    attr(x, "auditoria_naturalidade") <- NULL
     x
   }
   erro <- function(expr) tryCatch({ force(expr); NULL }, error = function(e) conditionMessage(e))
