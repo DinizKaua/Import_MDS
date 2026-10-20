@@ -1,6 +1,60 @@
 # Regras legadas do SIM, preservadas durante a separação do orquestrador.
 # Cada função recebe dados em memória; este módulo não realiza coleta ou exportação.
 
+# Validação isolada da DTOBITO bruta; não é chamada pelo fluxo principal.
+# Referência do formato: microdatasus 3.0.0, bloco DTOBITO de R/process_sim.R:
+# https://github.com/rfsaldanha/microdatasus/blob/7109ec2c42cf674ba453e0d7a20d2f464890b543/R/process_sim.R
+# Exige oito dígitos ASCII DDMMAAAA, calendário e conversão reversível.
+# Retorna uma linha por entrada: original (character), validada (Date), situação
+# e motivo (character). Entradas ausentes/inválidas têm data validada NA.
+# Apenas NA, vazio e espaços ASCII isolados são ausentes; tabs e sentinelas
+# não documentadas não recebem interpretação especial. O original é preservado.
+# Usa o calendário gregoriano proléptico de Date, inclusive sua convenção de ano
+# 0000, sem impor plausibilidade epidemiológica. %Y pode omitir zeros em anos
+# anteriores a 1000; a ida e volta recompõe explicitamente os quatro dígitos.
+validar_data_obito_sim <- function(codigos) {
+  if (!is.character(codigos) || is.object(codigos) || !is.null(dim(codigos))) {
+    stop("codigos deve ser um vetor de caracteres, com NA_character_ para ausentes.")
+  }
+
+  quantidade <- length(codigos)
+  resultado <- data.frame(
+    data_obito_original = unname(codigos),
+    data_obito_validada = as.Date(rep(NA_character_, quantidade)),
+    data_obito_situacao = rep("invalida", quantidade),
+    data_obito_motivo = rep("formato_invalido", quantidade),
+    stringsAsFactors = FALSE
+  )
+  na <- is.na(codigos)
+  vazio <- !na & codigos == ""
+  espacos <- !na & grepl("\\A +\\z", codigos, perl = TRUE)
+  resultado$data_obito_situacao[na | vazio | espacos] <- "ausente"
+  resultado$data_obito_motivo[na] <- "ausente_na"
+  resultado$data_obito_motivo[vazio] <- "ausente_vazio"
+  resultado$data_obito_motivo[espacos] <- "ausente_espacos"
+
+  indices <- which(!na & grepl("\\A[0-9]{8}\\z", codigos, perl = TRUE))
+  datas <- as.Date(codigos[indices], format = "%d%m%Y")
+  resultado$data_obito_motivo[indices] <- "data_calendario_invalida"
+  interpretaveis <- which(!is.na(datas))
+  if (length(interpretaveis)) {
+    datas_interpretadas <- datas[interpretaveis]
+    retorno <- sprintf(
+      "%02d%02d%04d",
+      as.integer(format(datas_interpretadas, "%d")),
+      as.integer(format(datas_interpretadas, "%m")),
+      as.integer(format(datas_interpretadas, "%Y"))
+    )
+    resultado$data_obito_motivo[indices[interpretaveis]] <- "conversao_nao_reversivel"
+    correspondem <- retorno == codigos[indices[interpretaveis]]
+    validos <- indices[interpretaveis[correspondem]]
+    resultado$data_obito_validada[validos] <- datas_interpretadas[correspondem]
+    resultado$data_obito_situacao[validos] <- "valida"
+    resultado$data_obito_motivo[validos] <- "codigo_valido"
+  }
+  resultado
+}
+
 # Recebe um vetor de caracteres da IDADE bruta, antes de process_sim().
 # Retorna um data.frame com uma linha por código, na mesma ordem, sem filtragem.
 # Contrato de unidades e sentinelas: microdatasus 3.0.0, R/process_sim.R,
