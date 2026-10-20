@@ -187,6 +187,15 @@ despacho <- codigo[[which(vapply(codigo, function(expr) {
     identical(expr[[2L]], quote(grepl("^SIM", sistema)))
 }, logical(1)))]]
 simular_cli <- function(argumentos) {
+  raiz <- getwd()
+  diretorio <- tempfile("import-mds-cli-filtros-")
+  dir.create(file.path(diretorio, "R", "sistemas"), recursive = TRUE)
+  dir.create(file.path(diretorio, "R", "comum"), recursive = TRUE)
+  on.exit({ setwd(raiz); unlink(diretorio, recursive = TRUE) }, add = TRUE)
+  for (arquivo in c("R/sistemas/sim.R", "R/comum/exportacao.R")) {
+    stopifnot(file.copy(file.path(raiz, arquivo), file.path(diretorio, arquivo)))
+  }
+  setwd(diretorio)
   ambiente <- new.env(parent = globalenv())
   ambiente$commandArgs <- function(trailingOnly = FALSE) argumentos
   ambiente$fetch_datasus <- function(...) stop("Acesso à rede proibido nos testes.")

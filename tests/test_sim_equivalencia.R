@@ -43,7 +43,10 @@ indice_despacho <- function(codigo) {
 
 bloco_sim <- function(codigo) {
   inicio <- indice_despacho(codigo)
-  fim <- indice_atribuicao(codigo, "nome_arquivo") - 1L
+  nome <- indice_atribuicao(codigo, "nome_arquivo")
+  # Na versão segura o nome é determinado antes do fetch; o processamento novo
+  # está todo no despacho. Na linha de base, os filtros seguem esse despacho.
+  fim <- if (nome > inicio) nome - 1L else inicio
   bloco <- codigo[inicio:fim]
   # A coleta fica fora do bloco executado, inclusive na versão original.
   stopifnot(!any(c("fetch_datasus", "write.csv") %in% all.names(bloco)))
@@ -53,28 +56,27 @@ bloco_sim <- function(codigo) {
 bloco_base <- bloco_sim(codigo_base)
 bloco_novo <- bloco_sim(codigo_novo)
 
-# Somente a carga do módulo e os parâmetros/validação etários foram acrescentados
-# antes da coleta. Os demais argumentos e a chamada de fetch permanecem iguais.
+# As cargas de módulos, os parâmetros etários e o destino seguro precedem a
+# coleta. Os demais argumentos e a chamada de fetch permanecem iguais.
 prefixo_novo <- codigo_novo[seq_len(indice_despacho(codigo_novo) - 1L)]
 adicao_etaria <- vapply(prefixo_novo, function(expr) {
   is.call(expr) && (
     identical(expr[[1L]], as.name("source")) ||
       (identical(expr[[1L]], as.name("<-")) &&
-         as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade"))
+         as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade",
+                                       "nome_arquivo", "caminho_arquivo"))
   )
 }, logical(1))
-stopifnot(sum(adicao_etaria) == 4L)
+stopifnot(sum(adicao_etaria) == 7L)
 stopifnot(identical(
   codigo_base[seq_len(indice_despacho(codigo_base) - 1L)],
   prefixo_novo[!adicao_etaria]
 ))
-exportacao_base <- codigo_base[
-  indice_atribuicao(codigo_base, "nome_arquivo"):length(codigo_base)
-]
-exportacao_nova <- codigo_novo[
-  indice_atribuicao(codigo_novo, "nome_arquivo"):length(codigo_novo)
-]
-stopifnot(identical(exportacao_base, exportacao_nova))
+# A publicação mudou intencionalmente. Os bytes CSV e as falhas de publicação
+# são comparados com write.csv nos testes específicos de exportação.
+stopifnot(any(vapply(codigo_novo, function(expr) {
+  identical(expr, quote(exportar_csv_seguro(dados_final, caminho_arquivo)))
+}, logical(1))))
 
 executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
   ambiente <- list2env(list(
@@ -235,15 +237,22 @@ cat("OK: erros propagados e SIH não suportado\n")
 # Exercita a nomenclatura legada sem executar write.csv ou ler CSVs existentes.
 nome_legado <- function(codigo, uf_param, filtros = list()) {
   inicio <- indice_atribuicao(codigo, "nome_arquivo")
+  ambiente <- list2env(list(
+    sistema = "SIM-DO", uf_param = uf_param, ano_inicio = 2015, ano_fim = 2024,
+    cid = "ALL", sexo = "ALL", raca = "ALL", faixa = "ALL",
+    idade_min = NULL, idade_max = NULL, mes_inicio = 1, mes_fim = 12,
+    limites_idade = list(idade_min = NULL, idade_max = NULL)
+  ), parent = baseenv())
+  list2env(filtros, envir = ambiente)
+  if (identical(codigo, codigo_novo)) {
+    source(file.path("R", "comum", "exportacao.R"), local = ambiente)
+    eval(codigo[[inicio]], envir = ambiente)
+    return(ambiente$nome_arquivo)
+  }
   fim <- which(vapply(codigo, function(expr) {
     is.call(expr) && identical(expr[[1L]], as.name("write.csv"))
   }, logical(1)))
   stopifnot(length(fim) == 1L)
-  ambiente <- list2env(list(
-    sistema = "SIM-DO", uf_param = uf_param, ano_inicio = 2015, ano_fim = 2024,
-    cid = "ALL", sexo = "ALL", raca = "ALL", faixa = "ALL"
-  ), parent = baseenv())
-  list2env(filtros, envir = ambiente)
   eval(codigo[inicio:(fim - 1L)], envir = ambiente)
   ambiente$nome_arquivo
 }

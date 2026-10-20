@@ -50,6 +50,16 @@ limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
 # -------------------------------
 uf_param <- if (uf == "ALL") "all" else uf
 
+source(file.path("R", "comum", "exportacao.R"), local = TRUE)
+nome_arquivo <- construir_nome_csv(
+  sistema, uf_param, ano_inicio, ano_fim,
+  cid = cid, sexo = sexo, raca = raca, faixa = faixa,
+  idade_min = if (is.null(idade_min)) NULL else limites_idade$idade_min,
+  idade_max = if (is.null(idade_max)) NULL else limites_idade$idade_max,
+  mes_inicio = mes_inicio, mes_fim = mes_fim
+)
+caminho_arquivo <- verificar_destino_csv(nome_arquivo)
+
 cat("Parâmetros:\n")
 cat("Sistema:", sistema, "\n")
 cat("Período:", ano_inicio, "-", ano_fim, "\n")
@@ -90,25 +100,8 @@ if (grepl("^SIM", sistema)) {
 }
 
 # -------------------------------
-# Nome do arquivo
-# -------------------------------
-nome_arquivo <- paste0(
-  "dados_",
-  sistema, "_",
-  ifelse(uf_param == "all", "BR", uf_param), "_",
-  ano_inicio, "_", ano_fim
-)
-
-if (cid != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", cid)
-if (sexo != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", sexo)
-if (raca != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", raca)
-if (faixa != "ALL") nome_arquivo <- paste0(nome_arquivo, "_", faixa)
-
-nome_arquivo <- paste0(nome_arquivo, ".csv")
-
-# -------------------------------
 # Exportação
 # -------------------------------
-write.csv(dados_final, nome_arquivo, row.names = FALSE)
+exportar_csv_seguro(dados_final, caminho_arquivo)
 
 cat("Arquivo gerado:", nome_arquivo, "\n")
