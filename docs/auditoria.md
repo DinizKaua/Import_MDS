@@ -1,8 +1,41 @@
 # Infraestrutura de auditoria persistente — esquema 1.0.0
 
-Esta infraestrutura está isolada do fluxo de `R/coletar_dados.R`. Nenhuma
-extração atual passa a gerar artefatos adicionais automaticamente. Carregar
-`R/comum/exportacao.R` e depois `R/comum/auditoria.R` no mesmo ambiente.
+O fluxo SIM de `R/coletar_dados.R` utiliza esta infraestrutura para produzir
+principal, auxiliar e relatório final em uma única execução. Os módulos continuam
+reutilizáveis: carregar `R/comum/exportacao.R` e depois `R/comum/auditoria.R` no
+mesmo ambiente. O processamento epidemiológico permanece em `R/sistemas/sim.R`.
+
+## Integração SIM
+
+O orquestrador verifica os três destinos antes de sua única chamada a
+`fetch_datasus()`, mantendo os mesmos parâmetros de coleta. Registra anos e meses
+solicitados, UF solicitada e efetiva, `stop_on_error`, sexo, raça/cor, prefixo CID
+e limites etários efetivos. `faixa_legada_informada` conserva o argumento legado;
+os limites resolvidos indicam seu efeito real. Os meses não passam a ser um filtro
+de ocorrência no SIM. O início registrado antecede a coleta, após a validação
+dos parâmetros e dos destinos. Python fica explicitamente indisponível: a
+integração não recebe uma versão verificável do chamador. A identificação Git é
+consultada na raiz do projeto, incluindo a indicação de alterações locais.
+
+Os atributos `contagens_etarias`, `contagens_datas` e `contagens_naturalidade`
+são passados diretamente como grupos `etarias`, `datas` e `naturalidade`, sem
+recalcular categorias a partir das 14 colunas. Categorias anteriores aos filtros
+mantêm esse significado; não descrevem automaticamente a população final.
+
+O atributo completo `auditoria_naturalidade` deve ter uma linha para cada registro
+final, posições exatamente de 1 a N, identificadores internos de texto únicos e
+não ausentes e descrições correspondentes à coluna `ESTADO_NATURALIDADE`.
+Ausência ou corrupção desse vínculo provoca erro antes da publicação.
+O auxiliar seleciona situações diferentes de `inequivoca` OU motivos diferentes
+de `correspondencia_unica`, incluindo ressalvas de uma tradução inequívoca.
+As posições já existentes são mantidas, sem renumeração após essa seleção.
+Os identificadores internos não são exportados. Um auxiliar sem exceções mantém
+as cinco colunas e zero registros.
+
+Depois da publicação, o orquestrador chama `verificar_resultado_auditado()` com
+o UUID esperado. Somente então anuncia os três arquivos. Se essa conferência
+final falhar, propaga erro sem anunciar sucesso nem excluir definitivos. Como o
+JSON já pode existir nessa etapa, consumidores devem sempre validá-lo novamente.
 
 ## Contratos
 
@@ -16,7 +49,7 @@ extração atual passa a gerar artefatos adicionais automaticamente. Carregar
   fornece esse resultado ao construtor; não há inferência sobre qual projeto
   um diretório de trabalho arbitrário representa.
 - `destinos_resultado_auditado(destino_csv)` determina e verifica TODOS os
-  destinos. Pode ser usado futuramente antes da coleta. Não cria arquivos.
+  destinos. É usado antes da coleta pelo orquestrador SIM. Não cria arquivos.
 - `validar_contagens_auditoria(contagens, total_final)` recebe listas opcionais
   `etarias`, `datas`, `naturalidade`, com os contratos atuais dos atributos
   `contagens_*` do SIM. Cada grupo fornecido precisa estar completo. Reconcilia
@@ -58,10 +91,10 @@ Para `consulta.csv`, os destinos são:
    exceções, tem cabeçalho e zero registros.
 3. `consulta_relatorio.json`: marcador final do conjunto, publicado por último.
 
-O chamador deve construir o auxiliar a partir do atributo `auditoria_naturalidade`
+O chamador constrói o auxiliar a partir do atributo `auditoria_naturalidade`
 DEPOIS de todos os filtros, mapear `posicao_csv` para `posicao_registro`, selecionar
-as exceções desejadas e os outros quatro campos correspondentes. Esta etapa não
-conecta nem modifica o processador. O identificador temporário interno não vai
+as exceções e os outros quatro campos correspondentes. A integração não modifica
+o processador. O identificador temporário interno não vai
 para nenhum CSV. Posição 1 é o primeiro registro de dados, excluindo o cabeçalho;
 campos com quebras de linha não alteram essa definição. Duplicatas legítimas em
 posições distintas são mantidas. Não há deduplicação.
@@ -126,8 +159,8 @@ rename/cópia. Conflitos posteriores à verificação inicial continuam protegid
 Execuções concorrentes com os mesmos destinos disputam primeiro o principal;
 a que perder não publica seus arquivos seguintes.
 
-Não há atomicidade entre arquivos. Se ocorrer erro, nenhum marcador próprio é
-publicado; CSVs definitivos já publicados ficam preservados. Um marcador
+Não há atomicidade entre arquivos. Se ocorrer erro antes da publicação do JSON,
+nenhum marcador próprio é publicado; CSVs definitivos já publicados ficam preservados. Um marcador
 conflitante criado por outra execução não é removido nem confundido com sucesso.
 Somente temporários explicitamente criados pela execução são limpos. Não há
 remoção automática de definitivos, retomada nem recuperação automática. Uma nova
@@ -150,3 +183,10 @@ espaços, NA literal, metadados adulterados, contagens e posições inválidas, 
 de escrita e de publicação, preservação de destinos e limpeza exclusiva.
 As interrupções simuladas são erros R entre etapas; não equivalem a testes de
 SIGKILL, desligamento físico ou concorrência de múltiplos processos reais.
+
+`TZ=UTC Rscript --vanilla tests/test_sim_auditoria_integracao.R` avalia o
+orquestrador real em cópias temporárias do projeto, com `fetch_datasus()`
+substituída no ambiente do script. O processador e o pacote instalados não são
+modificados. Compara posições, valores, contagens e bytes esperados e executa
+também processos R filhos para verificar sucesso e códigos de saída de falhas.
+CSV histórico e temporário alheio usados na suíte são exclusivamente sintéticos.

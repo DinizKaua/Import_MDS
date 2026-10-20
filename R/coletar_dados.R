@@ -51,6 +51,9 @@ limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
 uf_param <- if (uf == "ALL") "all" else uf
 
 source(file.path("R", "comum", "exportacao.R"), local = TRUE)
+source(file.path("R", "comum", "auditoria.R"), local = TRUE)
+.exigir_jsonlite()
+if (!nzchar(Sys.which("sha256sum"))) stop("Utilitário sha256sum indisponível.")
 nome_arquivo <- construir_nome_csv(
   sistema, uf_param, ano_inicio, ano_fim,
   cid = cid, sexo = sexo, raca = raca, faixa = faixa,
@@ -58,7 +61,19 @@ nome_arquivo <- construir_nome_csv(
   idade_max = if (is.null(idade_max)) NULL else limites_idade$idade_max,
   mes_inicio = mes_inicio, mes_fim = mes_fim
 )
-caminho_arquivo <- verificar_destino_csv(nome_arquivo)
+destinos <- destinos_resultado_auditado(nome_arquivo)
+caminho_arquivo <- destinos$principal
+metadados <- preparar_metadados_auditoria(
+  sistema = sistema, uf = uf,
+  periodo = list(year_start = ano_inicio, year_end = ano_fim,
+                 month_start = mes_inicio, month_end = mes_fim),
+  parametros = list(year_start = ano_inicio, year_end = ano_fim,
+                    month_start = mes_inicio, month_end = mes_fim,
+                    uf = uf_param, information_system = sistema, stop_on_error = TRUE),
+  filtros = list(sexo = sexo, raca = raca, cid = cid, faixa_legada_informada = faixa,
+                 idade_min = limites_idade$idade_min, idade_max = limites_idade$idade_max),
+  inicio = Sys.time(), python = NULL, import_mds = identificar_import_mds(".")
+)
 
 cat("Parâmetros:\n")
 cat("Sistema:", sistema, "\n")
@@ -102,6 +117,42 @@ if (grepl("^SIM", sistema)) {
 # -------------------------------
 # Exportação
 # -------------------------------
-exportar_csv_seguro(dados_final, caminho_arquivo)
+contagens <- list(
+  etarias = attr(dados_final, "contagens_etarias", exact = TRUE),
+  datas = attr(dados_final, "contagens_datas", exact = TRUE),
+  naturalidade = attr(dados_final, "contagens_naturalidade", exact = TRUE)
+)
+auditoria_completa <- attr(dados_final, "auditoria_naturalidade", exact = TRUE)
+campos_auditoria <- c("posicao_csv", "registro_id", "naturalidade_codigo_original",
+                      "naturalidade_descricao", "naturalidade_situacao", "naturalidade_motivo")
+if (!is.data.frame(auditoria_completa) ||
+    !identical(names(auditoria_completa), campos_auditoria) ||
+    nrow(auditoria_completa) != nrow(dados_final) ||
+    !identical(auditoria_completa$posicao_csv, seq_len(nrow(dados_final))) ||
+    !is.character(auditoria_completa$registro_id) ||
+    anyNA(auditoria_completa$registro_id) || anyDuplicated(auditoria_completa$registro_id) ||
+    !identical(auditoria_completa$naturalidade_descricao, dados_final$ESTADO_NATURALIDADE)) {
+  stop("Auditoria de naturalidade não corresponde aos registros finais do SIM.")
+}
+auditoria_saida <- data.frame(
+  posicao_registro = auditoria_completa$posicao_csv,
+  codigo_original = auditoria_completa$naturalidade_codigo_original,
+  situacao = auditoria_completa$naturalidade_situacao,
+  motivo = auditoria_completa$naturalidade_motivo,
+  descricao = auditoria_completa$naturalidade_descricao,
+  stringsAsFactors = FALSE
+)
+validar_auditoria_naturalidade(auditoria_saida, nrow(dados_final))
+# Traduções normais não precisam do auxiliar. Repetições idênticas e outras
+# ressalvas da tabela também são exceções, mesmo com descrição inequívoca.
+excecoes <- auditoria_saida$situacao != "inequivoca" |
+  auditoria_saida$motivo != "correspondencia_unica"
+auditoria_saida <- auditoria_saida[excecoes, , drop = FALSE]
+relatorio <- publicar_resultado_auditado(
+  dados_final, auditoria_saida, caminho_arquivo, metadados, contagens
+)
+verificar_resultado_auditado(destinos$relatorio, id_execucao = metadados$id_execucao)
 
 cat("Arquivo gerado:", nome_arquivo, "\n")
+cat("Auditoria de naturalidade:", basename(destinos$naturalidade), "\n")
+cat("Relatório de conclusão:", basename(destinos$relatorio), "\n")

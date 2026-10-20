@@ -160,6 +160,7 @@ local({
   dir.create(file.path(dir_cli, "R", "comum"), recursive = TRUE)
   dir.create(file.path(dir_cli, "R", "sistemas"), recursive = TRUE)
   stopifnot(file.copy(modulo_arquivo, file.path(dir_cli, "R", "comum", "exportacao.R")),
+            file.copy(file.path(raiz, "R", "comum", "auditoria.R"), file.path(dir_cli, "R", "comum", "auditoria.R")),
             file.copy(file.path(raiz, "R", "sistemas", "sim.R"), file.path(dir_cli, "R", "sistemas", "sim.R")))
   codigo <- parse(file = file.path(raiz, "R", "coletar_dados.R"))
   indice_fetch <- which(vapply(codigo, function(expr) {

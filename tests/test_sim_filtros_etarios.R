@@ -193,7 +193,7 @@ simular_cli <- function(argumentos) {
   dir.create(file.path(diretorio, "R", "sistemas"), recursive = TRUE)
   dir.create(file.path(diretorio, "R", "comum"), recursive = TRUE)
   on.exit({ setwd(raiz); unlink(diretorio, recursive = TRUE) }, add = TRUE)
-  for (arquivo in c("R/sistemas/sim.R", "R/comum/exportacao.R")) {
+  for (arquivo in c("R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")) {
     stopifnot(file.copy(file.path(raiz, arquivo), file.path(diretorio, arquivo)))
   }
   setwd(diretorio)

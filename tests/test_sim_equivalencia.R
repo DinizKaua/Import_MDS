@@ -59,23 +59,27 @@ bloco_novo <- bloco_sim(codigo_novo)
 # As cargas de módulos, os parâmetros etários e o destino seguro precedem a
 # coleta. Os demais argumentos e a chamada de fetch permanecem iguais.
 prefixo_novo <- codigo_novo[seq_len(indice_despacho(codigo_novo) - 1L)]
-adicao_etaria <- vapply(prefixo_novo, function(expr) {
+adicao_orquestracao <- vapply(prefixo_novo, function(expr) {
   is.call(expr) && (
     identical(expr[[1L]], as.name("source")) ||
+      identical(expr, quote(.exigir_jsonlite())) ||
+      identical(expr, quote(if (!nzchar(Sys.which("sha256sum"))) stop("Utilitário sha256sum indisponível."))) ||
       (identical(expr[[1L]], as.name("<-")) &&
          as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade",
-                                       "nome_arquivo", "caminho_arquivo"))
+                                       "nome_arquivo", "caminho_arquivo", "destinos", "metadados"))
   )
 }, logical(1))
-stopifnot(sum(adicao_etaria) == 7L)
+stopifnot(sum(adicao_orquestracao) == 12L)
 stopifnot(identical(
   codigo_base[seq_len(indice_despacho(codigo_base) - 1L)],
-  prefixo_novo[!adicao_etaria]
+  prefixo_novo[!adicao_orquestracao]
 ))
 # A publicação mudou intencionalmente. Os bytes CSV e as falhas de publicação
 # são comparados com write.csv nos testes específicos de exportação.
 stopifnot(any(vapply(codigo_novo, function(expr) {
-  identical(expr, quote(exportar_csv_seguro(dados_final, caminho_arquivo)))
+  identical(expr, quote(relatorio <- publicar_resultado_auditado(
+    dados_final, auditoria_saida, caminho_arquivo, metadados, contagens
+  )))
 }, logical(1))))
 
 executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
