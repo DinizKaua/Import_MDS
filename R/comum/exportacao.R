@@ -83,23 +83,38 @@ verificar_destino_csv <- function(destino) {
   utils::write.csv(dados, file = conexao, row.names = FALSE)
 }
 
-exportar_csv_seguro <- function(dados, destino) {
+preparar_arquivo_seguro <- function(destino, escrever) {
   destino <- verificar_destino_csv(destino)
   temporario <- tempfile(".import-mds-csv-", tmpdir = dirname(destino), fileext = ".tmp")
   # A criação exclusiva evita truncar um temporário que pertença a outra execução.
   conexao <- file(temporario, open = "wx")
   aberta <- TRUE
+  preparado <- FALSE
   on.exit({
     if (aberta) try(close(conexao), silent = TRUE)
-    if (unlink(temporario) != 0L) warning("Não foi possível limpar o temporário: ", temporario)
+    if (!preparado) limpar_temporarios_exportacao(temporario)
   }, add = TRUE)
   withCallingHandlers({
-    .escrever_csv_padrao(dados, conexao)
+    escrever(conexao)
     close(conexao)
     aberta <- FALSE
   }, warning = function(w) {
     stop("Falha na escrita do CSV: ", conditionMessage(w), call. = FALSE)
   })
+  preparado <- TRUE
+  temporario
+}
+
+limpar_temporarios_exportacao <- function(caminhos) {
+  # Recebe somente os caminhos exclusivos criados pela execução, nunca um glob.
+  for (caminho in caminhos) {
+    if (unlink(caminho) != 0L) warning("Não foi possível limpar o temporário: ", caminho)
+  }
+  invisible(NULL)
+}
+
+publicar_arquivo_seguro <- function(temporario, destino) {
+  destino <- verificar_destino_csv(destino)
   # file.link cria uma nova entrada para o arquivo COMPLETO, sem substituir um
   # destino existente. Não há fallback para rename/cópia que possa sobrescrever.
   if (!isTRUE(suppressWarnings(file.link(temporario, destino)))) {
@@ -107,4 +122,10 @@ exportar_csv_seguro <- function(dados, destino) {
     stop("Publicação CSV sem sobrescrita indisponível; o sistema de arquivos deve suportar hard links: ", destino)
   }
   invisible(destino)
+}
+
+exportar_csv_seguro <- function(dados, destino) {
+  temporario <- preparar_arquivo_seguro(destino, function(conexao) .escrever_csv_padrao(dados, conexao))
+  on.exit(limpar_temporarios_exportacao(temporario), add = TRUE)
+  publicar_arquivo_seguro(temporario, destino)
 }
