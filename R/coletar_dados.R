@@ -42,7 +42,7 @@ faixa <- if (!is.null(args$faixa)) args$faixa else "ALL"
 # -------------------------------
 # Tratamento UF
 # -------------------------------
-uf_param <- if (uf == "ALL") NULL else uf
+uf_param <- if (uf == "ALL") "all" else uf
 
 cat("Parâmetros:\n")
 cat("Sistema:", sistema, "\n")
@@ -62,7 +62,8 @@ dados_brutos <- fetch_datasus(
   month_start = mes_inicio,
   month_end = mes_fim,
   uf = uf_param,
-  information_system = sistema
+  information_system = sistema,
+  stop_on_error = TRUE
 )
 
 # -------------------------------
@@ -157,7 +158,7 @@ dados_final <- dados %>%
 nome_arquivo <- paste0(
   "dados_",
   sistema, "_",
-  ifelse(is.null(uf_param), "BR", uf_param), "_",
+  ifelse(uf_param == "all", "BR", uf_param), "_",
   ano_inicio, "_", ano_fim
 )
 
