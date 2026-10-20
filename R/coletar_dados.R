@@ -70,87 +70,18 @@ dados_brutos <- fetch_datasus(
 # Processamento
 # -------------------------------
 if (grepl("^SIM", sistema)) {
-
-  dados <- process_sim(dados_brutos) %>%
-    mutate(
-      data_evento = as.Date(DTOBITO),
-      cid_valor = toupper(CAUSABAS),
-      IDADE_NUM = as.numeric(IDADEanos)
-    )
-
+  # Caminho relativo à raiz do projeto, conforme o contrato de execução da CLI.
+  source(file.path("R", "sistemas", "sim.R"), local = TRUE)
+  dados_final <- preparar_exportacao_sim(
+    dados_brutos,
+    sexo = sexo,
+    raca = raca,
+    faixa = faixa,
+    cid = cid
+  )
 } else {
   stop("Sistema não suportado (use SIM-DO).")
 }
-
-# Remove sem data e garante 18+
-dados <- dados %>%
-  filter(!is.na(data_evento)) %>%
-  filter(!is.na(IDADE_NUM) & IDADE_NUM >= 18)
-
-# -------------------------------
-# FILTROS
-# -------------------------------
-
-if (sexo != "ALL") {
-  dados <- dados %>% filter(SEXO == sexo)
-}
-
-if (raca != "ALL") {
-  dados <- dados %>% filter(RACACOR == raca)
-}
-
-# Faixa etária 
-if (faixa != "ALL") {
-
-  if (faixa == "18-39") {
-    dados <- dados %>% filter(IDADE_NUM >= 18 & IDADE_NUM <= 39)
-  } else if (faixa == "40-59") {
-    dados <- dados %>% filter(IDADE_NUM >= 40 & IDADE_NUM <= 59)
-  } else if (faixa == "60+") {
-    dados <- dados %>% filter(IDADE_NUM >= 60)
-  }
-}
-
-if (cid != "ALL") {
-  dados <- dados %>%
-    filter(startsWith(cid_valor, cid))
-}
-
-# -------------------------------
-# SELEÇÃO FINAL
-# -------------------------------
-dados_final <- dados %>%
-  select(any_of(c(
-    "IDADEanos",
-    "DTNASC",
-    "ESTCIV",
-    "SEXO",
-    "RACACOR",
-    "LOCOCOR",
-    "CODESTAB",
-    "data_evento",
-    "munResUf",
-    "munResNome",
-    "NATURAL",
-    "CODMUNNATU",
-    "ASSISTMED",
-    "cid_valor"
-  ))) %>%
-  rename(
-    IDADE = IDADEanos,
-    DATA_DE_NASCIMENTO = DTNASC,
-    ESTADO_CIVIL = ESTCIV,
-    RACA_COR = RACACOR,
-    LOCAL_OBITO = LOCOCOR,
-    ESTABELECIMENTO = CODESTAB,
-    DATA = data_evento,
-    ESTADO_RESIDENCIA = munResUf,
-    MUNICIPIO_RESIDENCIA = munResNome,
-    ESTADO_NATURALIDADE = NATURAL,
-    MUNICIPIO_NATURALIDADE = CODMUNNATU,
-    ASSISTENCIA_MEDICA = ASSISTMED,
-    DOENCA = cid_valor
-  )
 
 # -------------------------------
 # Nome do arquivo
