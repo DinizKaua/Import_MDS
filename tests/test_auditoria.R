@@ -101,6 +101,30 @@ local({
   stopifnot(identical(modulo$ler_auditoria_naturalidade(caminhos(d)[["auxiliar"]], 6L)$descricao, "NA"))
   cat("OK: principal vazio, auxiliar vazio, códigos com zeros/espaços, ausência diferenciada do texto NA\n")
 
+  # A única descrição ambígua autorizada mantém o país indeterminado e o código.
+  a44 <- data.frame(posicao_registro = 1L, codigo_original = "44", situacao = "ambigua",
+    motivo = "codigo_corresponde_a_dois_paises_distintos", descricao = "CAMBOJA / LAOS")
+  d <- caso(); publicar(d, auxiliar = a44)
+  modulo$verificar_resultado_auditado(caminhos(d)[["json"]])
+  stopifnot(identical(modulo$ler_auditoria_naturalidade(caminhos(d)[["auxiliar"]], 6L),
+                      transform(a44, posicao_registro = as.numeric(posicao_registro))))
+  for (campo in c("codigo_original", "situacao", "motivo", "descricao")) {
+    adulterada <- a44
+    adulterada[[campo]] <- switch(campo, codigo_original = "044", situacao = "sem_correspondencia",
+      motivo = "descricoes_conflitantes", descricao = "CAMBOJA")
+    erro(modulo$validar_auditoria_naturalidade(adulterada, 6L), "Descrição")
+    # A leitura também deve rejeitar descrições não autorizadas, sem apagá-las silenciosamente.
+    caminho <- file.path(caso(), "auxiliar.csv")
+    utils::write.csv(adulterada, caminho, row.names = FALSE)
+    erro(modulo$ler_auditoria_naturalidade(caminho, 6L), "Representação")
+  }
+  # Relatórios históricos com ambiguidade e descrição NA continuam válidos.
+  historica <- a44; historica$motivo <- "descricoes_conflitantes"; historica$descricao <- NA_character_
+  d <- caso(); publicar(d, auxiliar = historica)
+  modulo$verificar_resultado_auditado(caminhos(d)[["json"]])
+  stopifnot(is.na(modulo$ler_auditoria_naturalidade(caminhos(d)[["auxiliar"]], 6L)$descricao))
+  cat("OK: descrição aprovada do código 44, rejeição de combinações adulteradas e compatibilidade histórica\n")
+
   # Todos os destinos: arquivo, diretório e link simbólico quebrado.
   for (alvo in seq_len(3L)) for (tipo in c("arquivo", "diretorio", "link")) {
     d <- caso(); p <- caminhos(d); destino <- unname(p[alvo])

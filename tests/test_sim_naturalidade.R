@@ -65,7 +65,21 @@ local({
   oficial_antes <- unserialize(serialize(oficial, NULL))
   freq <- table(oficial$cod)
   ambiguos <- names(freq)[freq > 1L]
-  stopifnot(length(ambiguos) == 3L, all(freq[ambiguos] == 2L))
+  stopifnot(identical(ambiguos, c("44", "73", "81")), all(freq[ambiguos] == 2L))
+  padronizados <- converter(c("44", "73", "81", "44", "044", "44 ", " 73", "081", "81 "))
+  stopifnot(identical(padronizados$naturalidade_codigo_original,
+                     c("44", "73", "81", "44", "044", "44 ", " 73", "081", "81 ")),
+    identical(padronizados$naturalidade_descricao,
+      c("CAMBOJA / LAOS", "IRLANDA", "ILHAS FALKLAND (MALVINAS)", "CAMBOJA / LAOS", rep(NA_character_, 5L))),
+    identical(padronizados$naturalidade_situacao,
+      c("ambigua", "inequivoca", "inequivoca", "ambigua", rep("sem_correspondencia", 5L))),
+    identical(padronizados$naturalidade_motivo,
+      c("codigo_corresponde_a_dois_paises_distintos", rep("equivalencia_nomenclatura_geografica", 2L),
+        "codigo_corresponde_a_dois_paises_distintos", rep("codigo_nao_encontrado", 5L))))
+  # A regra exata não deve atingir nem mesmo códigos semelhantes presentes na referência.
+  similares <- data.frame(cod = c("044", "73 ", "081"), nome = c("Texto A", "Texto B", "Texto C"))
+  stopifnot(identical(converter(similares$cod, similares)$naturalidade_descricao, similares$nome))
+  cat("OK: três padronizações explícitas, 44 ambíguo, 73/81 inequívocos, zeros e espaços sem coerção\n")
   chaves_inequivocas <- names(freq)[freq == 1L]
   convertido <- converter(chaves_inequivocas)
   antigo <- microdatasus::process_sim(data.frame(NATURAL = chaves_inequivocas))
@@ -89,9 +103,11 @@ local({
   stopifnot(nrow(legado) == 7L, nrow(novo) == 4L,
             identical(novo$.import_mds_registro_id, as.character(1:4)),
             identical(novo$naturalidade_codigo_original, entrada$NATURAL),
-            identical(novo$naturalidade_situacao, c(rep("ambigua", 3L), "inequivoca")),
-            identical(novo$naturalidade_motivo, c(rep("descricoes_conflitantes", 3L), "correspondencia_unica")),
-            all(is.na(novo$NATURAL[1:3])), identical(novo$NATURAL[4L], converter("821")$naturalidade_descricao),
+            identical(novo$naturalidade_situacao, c("ambigua", rep("inequivoca", 3L))),
+            identical(novo$naturalidade_motivo, c("codigo_corresponde_a_dois_paises_distintos",
+              rep("equivalencia_nomenclatura_geografica", 2L), "correspondencia_unica")),
+            identical(novo$NATURAL[1:3], c("CAMBOJA / LAOS", "IRLANDA", "ILHAS FALKLAND (MALVINAS)")),
+            identical(novo$NATURAL[4L], converter("821")$naturalidade_descricao),
             identical(novo$idade_codigo_original, entrada$IDADE),
             identical(novo$idade_anos_completos, c(18L, 100L, 17L, 60L)),
             identical(novo$data_obito_original, entrada$DTOBITO),
@@ -128,17 +144,18 @@ local({
   esperado_auditoria <- data.frame(
     posicao_csv = 1:5, registro_id = c("1", "2", "3", "4", "6"),
     naturalidade_codigo_original = entrada$NATURAL[c(1L, 2L, 1L, 4L, 2L)],
-    naturalidade_descricao = c(NA, NA, NA, converter("821")$naturalidade_descricao, NA),
-    naturalidade_situacao = c("ambigua", "ambigua", "ambigua", "inequivoca", "ambigua"),
-    naturalidade_motivo = c(rep("descricoes_conflitantes", 3L), "correspondencia_unica", "descricoes_conflitantes"),
+    naturalidade_descricao = c("CAMBOJA / LAOS", "IRLANDA", "CAMBOJA / LAOS", converter("821")$naturalidade_descricao, "IRLANDA"),
+    naturalidade_situacao = c("ambigua", "inequivoca", "ambigua", "inequivoca", "inequivoca"),
+    naturalidade_motivo = c("codigo_corresponde_a_dois_paises_distintos", "equivalencia_nomenclatura_geografica",
+      "codigo_corresponde_a_dois_paises_distintos", "correspondencia_unica", "equivalencia_nomenclatura_geografica"),
     stringsAsFactors = FALSE
   )
   stopifnot(identical(auditoria, esperado_auditoria),
             identical(saida$ESTADO_NATURALIDADE, auditoria$naturalidade_descricao),
             identical(attr(saida, "contagens_naturalidade"), list(
-              antes_filtros = list(total = 6L, inequivocas = 1L, ambiguas = 5L, sem_correspondencia = 0L, ausentes = 0L),
+              antes_filtros = list(total = 6L, inequivocas = 4L, ambiguas = 2L, sem_correspondencia = 0L, ausentes = 0L),
               apos_filtro_etario = 5L,
-              apos_demais_filtros = list(total = 5L, inequivocas = 1L, ambiguas = 4L, sem_correspondencia = 0L, ausentes = 0L))))
+              apos_demais_filtros = list(total = 5L, inequivocas = 3L, ambiguas = 2L, sem_correspondencia = 0L, ausentes = 0L))))
   feminina <- modulo$preparar_exportacao_sim(duplicadas, sexo = "Feminino", raca = "Parda", cid = "I21")
   stopifnot(nrow(feminina) == 1L, identical(feminina$ESTABELECIMENTO, "0000004"),
             identical(attr(feminina, "auditoria_naturalidade")$posicao_csv, 1L),

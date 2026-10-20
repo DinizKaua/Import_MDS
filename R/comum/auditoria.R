@@ -112,6 +112,15 @@ sha256_arquivo <- function(caminho) {
     })
 }
 
+# Única apresentação ambígua com descrição autorizada. O predicado também é
+# usado na leitura para não converter esse texto em NA. Não resolve o país.
+.descricao_ambigua_aprovada <- function(auditoria) {
+  !is.na(auditoria$codigo_original) & auditoria$codigo_original == "44" &
+    !is.na(auditoria$situacao) & auditoria$situacao == "ambigua" &
+    !is.na(auditoria$motivo) & auditoria$motivo == "codigo_corresponde_a_dois_paises_distintos" &
+    !is.na(auditoria$descricao) & auditoria$descricao == "CAMBOJA / LAOS"
+}
+
 validar_auditoria_naturalidade <- function(auditoria, total_principal) {
   .exigir_auditoria(.inteiro_auditoria(total_principal), "Quantidade principal inválida.")
   .exigir_auditoria(is.data.frame(auditoria) &&
@@ -134,7 +143,8 @@ validar_auditoria_naturalidade <- function(auditoria, total_principal) {
   .exigir_auditoria(all(!is.na(auditoria$codigo_original[vazio]) & auditoria$codigo_original[vazio] == "") &&
     all(!is.na(auditoria$codigo_original[espacos]) & grepl("\\A +\\z", auditoria$codigo_original[espacos], perl = TRUE)) &&
     all(auditoria$situacao[vazio | espacos] == "ausente"), "Classificação de vazio/espaços inconsistente.")
-  .exigir_auditoria(all(is.na(auditoria$descricao[auditoria$situacao != "inequivoca"])) &&
+  sem_descricao <- auditoria$situacao != "inequivoca" & !.descricao_ambigua_aprovada(auditoria)
+  .exigir_auditoria(all(is.na(auditoria$descricao[sem_descricao])) &&
     !anyNA(auditoria$descricao[auditoria$situacao == "inequivoca"]),
     "Descrição deve corresponder à classificação da naturalidade.")
   invisible(TRUE)
@@ -146,7 +156,7 @@ ler_auditoria_naturalidade <- function(caminho, total_principal) {
   .exigir_auditoria(all(grepl("\\A[1-9][0-9]*\\z", dados$posicao_registro, perl = TRUE)), "Posição serializada inválida.")
   dados$posicao_registro <- as.numeric(dados$posicao_registro)
   ausente_na <- dados$motivo == "codigo_ausente_na"
-  sem_descricao <- dados$situacao != "inequivoca"
+  sem_descricao <- dados$situacao != "inequivoca" & !.descricao_ambigua_aprovada(dados)
   .exigir_auditoria(all(dados$codigo_original[ausente_na] == "NA") && all(dados$descricao[sem_descricao] == "NA"),
                     "Representação de ausência inconsistente no auxiliar.")
   dados$codigo_original[ausente_na] <- NA_character_

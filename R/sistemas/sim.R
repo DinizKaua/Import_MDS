@@ -149,9 +149,22 @@ resolver_limites_idade_sim <- function(idade_min = NULL, idade_max = NULL,
   list(idade_min = idade_min, idade_max = idade_max)
 }
 
+# Regras de apresentação aprovadas pelo projeto, aplicadas somente ao texto exato
+# do código. Não são correções da tabela oficial nem inferências epidemiológicas.
+padronizacoes_naturalidade_sim <- function() {
+  data.frame(
+    codigo = c("44", "73", "81"),
+    descricao = c("CAMBOJA / LAOS", "IRLANDA", "ILHAS FALKLAND (MALVINAS)"),
+    situacao = c("ambigua", "inequivoca", "inequivoca"),
+    motivo = c("codigo_corresponde_a_dois_paises_distintos",
+               "equivalencia_nomenclatura_geografica", "equivalencia_nomenclatura_geografica"),
+    stringsAsFactors = FALSE
+  )
+}
+
 # Converte somente a naturalidade, sem junções com os microdados. A tabela
 # oficial é lida sem modificações. Repetições idênticas na referência produzem
-# uma tradução; descrições distintas produzem NA, sem escolher a primeira.
+# uma tradução; descrições distintas produzem NA, salvo as regras acima.
 # NA/vazio/espaços são ausências; códigos são comparados sem limpeza ou coerção.
 converter_naturalidade_sim <- function(codigos, tabela = microdatasus::tabNaturalidade) {
   if (!is.character(codigos) || is.object(codigos) || !is.null(dim(codigos))) {
@@ -214,6 +227,12 @@ converter_naturalidade_sim <- function(codigos, tabela = microdatasus::tabNatura
   resultado$naturalidade_motivo[is.na(codigos)] <- "codigo_ausente_na"
   resultado$naturalidade_motivo[!is.na(codigos) & codigos == ""] <- "codigo_ausente_vazio"
   resultado$naturalidade_motivo[!is.na(codigos) & grepl("\\A +\\z", codigos, perl = TRUE)] <- "codigo_ausente_espacos"
+  regras <- padronizacoes_naturalidade_sim()
+  posicoes_regras <- match(codigos, regras$codigo)
+  padronizados <- which(!is.na(posicoes_regras))
+  resultado$naturalidade_descricao[padronizados] <- regras$descricao[posicoes_regras[padronizados]]
+  resultado$naturalidade_situacao[padronizados] <- regras$situacao[posicoes_regras[padronizados]]
+  resultado$naturalidade_motivo[padronizados] <- regras$motivo[posicoes_regras[padronizados]]
   attr(resultado, "diagnostico_tabela") <- list(
     linhas = nrow(tabela), chaves_ausentes = sum(chave_ausente),
     descricoes_ausentes = sum(descricao_ausente), codigos = nrow(mapa),

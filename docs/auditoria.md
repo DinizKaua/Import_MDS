@@ -101,9 +101,22 @@ posições distintas são mantidas. Não há deduplicação.
 
 Situações suportadas: `ambigua`, `sem_correspondencia`, `ausente`; uma exceção
 `inequivoca` também pode ser informada pelo processador, por exemplo para auditar
-repetições idênticas da tabela auxiliar. Só a situação `inequivoca` admite uma
-descrição determinada; as outras mantêm descrição NA. A infraestrutura não
-escolhe descrições nem resolve ambiguidades.
+repetições idênticas da tabela auxiliar. As situações diferentes de `inequivoca`
+mantêm descrição NA, com uma exceção explícita de apresentação do SIM: código
+exato `44`, situação `ambigua`, motivo `codigo_corresponde_a_dois_paises_distintos`
+e descrição `CAMBOJA / LAOS`. Essa descrição não determina um país: o caso segue
+contabilizado como ambíguo e permanece no auxiliar. O leitor e o validador admitem
+somente essa combinação, sem liberar descrições arbitrárias para ambiguidades.
+
+Os códigos exatos `73` e `81` recebem `IRLANDA` e `ILHAS FALKLAND (MALVINAS)`,
+respectivamente, com situação `inequivoca` e motivo
+`equivalencia_nomenclatura_geografica`. Também são exportados no auxiliar como
+padronizações rastreáveis, sem contar como ambiguidades geográficas. São regras
+de apresentação aprovadas do projeto; a referência instalada não é alterada.
+Não há conversão numérica, remoção de espaços ou de zeros dos códigos. O esquema
+de campos do auxiliar e a versão JSON `1.0.0` permanecem iguais. Consumidores com
+o validador anterior precisam ser atualizados para aceitar a descrição do caso 44;
+os artefatos históricos continuam aceitos pelo validador atualizado.
 
 Os campos de texto são lidos sem conversão automática de tipos e sem remover
 espaços. A serialização CSV padrão escreve ausências como NA. Para distinguir

@@ -31,8 +31,8 @@ local({
   }
   bytes <- function(p) readBin(p, "raw", n = file.info(p)$size)
   freq <- table(microdatasus::tabNaturalidade$cod)
-  ambiguo <- names(freq)[freq > 1L][1L]
-  stopifnot(length(ambiguo) == 1L, !is.na(ambiguo))
+  ambiguo <- "44"
+  stopifnot(freq[ambiguo] == 2L)
   base <- data.frame(
     NATURAL = c("821", ambiguo, NA, "0001 ", "821", ambiguo, "NA", "821", "", "   ", "821"),
     IDADE = c("418", "460", "999", "618", "417", "500", "418", "306", "400", "312", "418"),
@@ -147,8 +147,10 @@ local({
   esperado_aux <- data.frame(posicao_registro = c(2, 3, 4, 6, 8, 9, 10),
     codigo_original = c(ambiguo, NA, "0001 ", ambiguo, "", "   ", ambiguo),
     situacao = c("ambigua", "ausente", "sem_correspondencia", "ambigua", "ausente", "ausente", "ambigua"),
-    motivo = c("descricoes_conflitantes", "codigo_ausente_na", "codigo_nao_encontrado", "descricoes_conflitantes",
-               "codigo_ausente_vazio", "codigo_ausente_espacos", "descricoes_conflitantes"), descricao = rep(NA_character_, 7L))
+    motivo = c("codigo_corresponde_a_dois_paises_distintos", "codigo_ausente_na", "codigo_nao_encontrado",
+               "codigo_corresponde_a_dois_paises_distintos", "codigo_ausente_vazio", "codigo_ausente_espacos",
+               "codigo_corresponde_a_dois_paises_distintos"),
+    descricao = c("CAMBOJA / LAOS", NA, NA, "CAMBOJA / LAOS", NA, NA, "CAMBOJA / LAOS"))
   stopifnot(identical(a, esperado_aux), !"registro_id" %in% names(a),
     r$ambiente$dados_final$ESTADO_NATURALIDADE[1L] == "MARANHAO",
     identical(r$ambiente$dados_final$ESTABELECIMENTO[a$posicao_registro], sprintf("%07d", c(2, 3, 4, 6, 9, 10, 2))))
@@ -157,6 +159,28 @@ local({
   stopifnot(identical(bytes(artefatos(r)$principal), bytes(legado)),
     identical(j$arquivos$principal$sha256, modulo$sha256_arquivo(artefatos(r)$principal)))
   cat("OK: coleta única simulada, três artefatos, bytes legados, 14 campos, datas/idades, duplicatas, contagens e posições explícitas\n")
+
+  # Três regras no fluxo completo, após exclusões por idade/CID/sexo/raça.
+  padronizada <- base[rep(1L, 9L), ]; rownames(padronizada) <- NULL
+  padronizada$NATURAL <- c("44", "821", "73", "81", "44", "81", "44", "73", "81")
+  padronizada$IDADE <- c("418", "418", "460", "500", "417", rep("418", 4L))
+  padronizada$CAUSABAS <- c(rep("I21", 5L), "C50", rep("I21", 3L))
+  padronizada$SEXO[7L] <- "2"; padronizada$RACACOR[8L] <- "4"
+  padronizada[9L, ] <- padronizada[4L, ] # Duplicata legítima de código 81.
+  r <- executar(c(argumentos, "--idade_min", "18", "--sexo", "Masculino", "--raca", "Branca"), dados = padronizada)
+  j <- sucesso(r)
+  a <- modulo$ler_auditoria_naturalidade(artefatos(r)$naturalidade, 5L)
+  stopifnot(identical(r$ambiente$dados_final$ESTADO_NATURALIDADE,
+      c("CAMBOJA / LAOS", "MARANHAO", "IRLANDA", rep("ILHAS FALKLAND (MALVINAS)", 2L))),
+    identical(a, data.frame(posicao_registro = c(1, 3, 4, 5), codigo_original = c("44", "73", "81", "81"),
+      situacao = c("ambigua", rep("inequivoca", 3L)),
+      motivo = c("codigo_corresponde_a_dois_paises_distintos", rep("equivalencia_nomenclatura_geografica", 3L)),
+      descricao = c("CAMBOJA / LAOS", "IRLANDA", rep("ILHAS FALKLAND (MALVINAS)", 2L)))),
+    identical(unlist(j$contagens$naturalidade$antes_filtros, use.names = FALSE), c(9L, 6L, 3L, 0L, 0L)),
+    identical(unlist(j$contagens$naturalidade$apos_demais_filtros, use.names = FALSE), c(5L, 4L, 1L, 0L, 0L)),
+    j$contagens$etarias$apos_filtro_etario == 8L, j$contagens$etarias$apos_demais_filtros == 5L,
+    ncol(r$ambiente$dados_final) == 14L, j$versao_esquema == "1.0.0")
+  cat("OK: 44 permanece ambíguo no auxiliar; 73/81 rastreáveis sem ambiguidade, posições e contagens após filtros\n")
 
   r <- executar(c(argumentos, "--idade_min", "18"))
   j <- sucesso(r)
