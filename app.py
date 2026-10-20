@@ -1,4 +1,5 @@
 import subprocess
+import sys
 
 # -------------------------------
 #   Tipo de sistema
@@ -112,25 +113,37 @@ def escolher_raca():
     return mapa.get(opcao, "ALL")
 
 # -------------------------------
-#   Faixa Etária
+#   Limites etários opcionais (anos completos)
 # -------------------------------
-def escolher_faixa_etaria():
-    print("\nFiltrar por faixa etária?")
-    print("1 - 18 a 39")
-    print("2 - 40 a 59")
-    print("3 - 60+")
-    print("4 - Não filtrar")
+def ler_limite_idade(pergunta):
+    while True:
+        valor = input(pergunta)
+        if valor == "":
+            return None
+        if not valor.isascii() or not valor.isdigit():
+            print("Informe um inteiro não negativo, sem espaços, ou Enter para não limitar.")
+            continue
+        try:
+            idade = int(valor)
+        except ValueError:
+            print("Valor excede o limite técnico de representação aceito pelo R.")
+            continue
+        # Mesmo limite técnico de representação exata de resolver_limites_idade_sim().
+        if idade > 2**53 - 1:
+            print("Valor excede o limite técnico de representação aceito pelo R (9007199254740991).")
+            continue
+        return idade
 
-    opcao = input("Escolha: ")
 
-    if opcao == "1":
-        return "18-39"
-    elif opcao == "2":
-        return "40-59"
-    elif opcao == "3":
-        return "60+"
-    else:
-        return "ALL"
+def escolher_limites_idade():
+    print("\nLimites etários em anos completos:")
+    idade_min = ler_limite_idade("Idade mínima (Enter para não limitar): ")
+    while True:
+        idade_max = ler_limite_idade("Idade máxima (Enter para não limitar): ")
+        if idade_min is not None and idade_max is not None and idade_min > idade_max:
+            print("A idade máxima não pode ser menor que a idade mínima. Informe novamente a máxima.")
+            continue
+        return idade_min, idade_max
 
 # -------------------------------
 #   Execução principal
@@ -143,36 +156,49 @@ def main():
     uf = escolher_estado()
     sexo = escolher_sexo()
     raca = escolher_raca()
-    faixa = escolher_faixa_etaria()
+    idade_min, idade_max = escolher_limites_idade()
     doenca = escolher_doenca()
 
 
     print("\nExecutando coleta...\n")
 
+    argumentos = [
+        "Rscript", "R/coletar_dados.R",
+        "--system", sistema,
+        "--year_start", ano_inicio,
+        "--year_end", ano_fim,
+        "--month_start", mes_inicio,
+        "--month_end", mes_fim,
+        "--uf", uf,
+        "--sexo", sexo,
+        "--cid", doenca,
+        "--raca", raca
+    ]
+    if idade_min is not None:
+        argumentos.extend(["--idade_min", str(idade_min)])
+    if idade_max is not None:
+        argumentos.extend(["--idade_max", str(idade_max)])
+
     try:
-        subprocess.run([
-            "Rscript", "R/coletar_dados.R",
-            "--system", sistema,
-            "--year_start", ano_inicio,
-            "--year_end", ano_fim,
-            "--month_start", mes_inicio,
-            "--month_end", mes_fim,
-            "--uf", uf,
-            "--sexo", sexo,
-            "--cid", doenca,
-            "--raca", raca,
-            "--faixa", faixa
-        ], check=True)
+        subprocess.run(argumentos, check=True)
 
         print("\nDados coletados com sucesso!")
+        return 0
 
     except subprocess.CalledProcessError as e:
         print("\nErro ao executar o script R")
         print("Detalhes:", e)
+        return e.returncode if e.returncode > 0 else 1
+    except FileNotFoundError:
+        print("\nExecutável Rscript não encontrado. Verifique se o R está disponível no PATH.")
+        return 127
+    except OSError as e:
+        print("\nNão foi possível iniciar o Rscript:", e)
+        return 1
 
 
 # -------------------------------
 #   Start
 # -------------------------------
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
