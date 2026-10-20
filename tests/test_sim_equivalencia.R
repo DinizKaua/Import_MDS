@@ -53,11 +53,20 @@ bloco_sim <- function(codigo) {
 bloco_base <- bloco_sim(codigo_base)
 bloco_novo <- bloco_sim(codigo_novo)
 
-# Parse, parâmetros, chamada de coleta, nomenclatura e exportação permanecem
-# estruturalmente idênticos. A chamada de coleta é inspecionada, nunca executada.
+# Somente a carga do módulo e os parâmetros/validação etários foram acrescentados
+# antes da coleta. Os demais argumentos e a chamada de fetch permanecem iguais.
+prefixo_novo <- codigo_novo[seq_len(indice_despacho(codigo_novo) - 1L)]
+adicao_etaria <- vapply(prefixo_novo, function(expr) {
+  is.call(expr) && (
+    identical(expr[[1L]], as.name("source")) ||
+      (identical(expr[[1L]], as.name("<-")) &&
+         as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade"))
+  )
+}, logical(1))
+stopifnot(sum(adicao_etaria) == 4L)
 stopifnot(identical(
   codigo_base[seq_len(indice_despacho(codigo_base) - 1L)],
-  codigo_novo[seq_len(indice_despacho(codigo_novo) - 1L)]
+  prefixo_novo[!adicao_etaria]
 ))
 exportacao_base <- codigo_base[
   indice_atribuicao(codigo_base, "nome_arquivo"):length(codigo_base)
@@ -71,11 +80,22 @@ executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
   ambiente <- list2env(list(
     dados_brutos = entrada, sistema = sistema,
     sexo = "ALL", raca = "ALL", faixa = "ALL", cid = "ALL",
+    idade_min = NULL, idade_max = NULL,
     fetch_datasus = function(...) stop("Coleta proibida nos testes locais.")
   ), parent = globalenv())
   list2env(filtros, envir = ambiente)
+  if (identical(bloco, bloco_novo)) {
+    source(file.path("R", "sistemas", "sim.R"), local = ambiente)
+    # A configuração explícita de 18 anos reproduz a seleção da linha de base.
+    # As três faixas específicas já fornecem seus próprios limites equivalentes.
+    if (!ambiente$faixa %in% c("18-39", "40-59", "60+")) ambiente$idade_min <- 18
+  }
   eval(bloco, envir = ambiente)
-  ambiente$dados_final
+  resultado <- ambiente$dados_final
+  # A auditoria nova é testada separadamente; aqui comparamos todos os valores,
+  # tipos e demais atributos da saída legada, sem mudar resultados esperados.
+  attr(resultado, "contagens_etarias") <- NULL
+  resultado
 }
 
 capturar_erro <- function(expr) {
@@ -192,11 +212,18 @@ for (nome in names(entradas_adicionais)) {
 }
 
 # Erros de esquema/entrada e SIH não suportado continuam sendo propagados.
-for (dados in list(entrada[, names(entrada) != "DTNASC"], NULL)) {
+for (dados in list(entrada[, names(entrada) != "DTNASC"])) {
   antigo <- capturar_erro(executar_sim(bloco_base, dados))
   novo <- capturar_erro(executar_sim(bloco_novo, dados))
   stopifnot(!is.null(antigo), identical(antigo, novo))
 }
+# Uma entrada NULL continua falhando, agora no guard de integridade anterior ao
+# processador; a mensagem nova é explícita em vez do erro indireto de mutate.
+stopifnot(
+  !is.null(capturar_erro(executar_sim(bloco_base, NULL))),
+  identical(capturar_erro(executar_sim(bloco_novo, NULL)),
+            "Dados brutos do SIM devem conter a coluna IDADE original.")
+)
 for (bloco in list(bloco_base, bloco_novo)) {
   stopifnot(identical(
     capturar_erro(executar_sim(bloco, entrada, sistema = "SIH-RD")),
@@ -230,5 +257,5 @@ for (codigo in list(codigo_base, codigo_novo)) {
     )
   )
 }
-cat("OK: parâmetros/coleta/exportação inalterados e nomes nacionais/UF/filtros\n")
+cat("OK: configuração explícita de 18 anos reproduz o legado; coleta/exportação e nomes preservados\n")
 cat("PASSOU: 20 cenários de filtros e 4 entradas adicionais; nenhuma coleta executada.\n")

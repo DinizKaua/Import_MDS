@@ -38,6 +38,12 @@ sexo <- if (!is.null(args$sexo)) args$sexo else "ALL"
 cid <- if (!is.null(args$cid)) toupper(args$cid) else "ALL"
 raca <- if (!is.null(args$raca)) args$raca else "ALL"
 faixa <- if (!is.null(args$faixa)) args$faixa else "ALL"
+idade_min <- args$idade_min
+idade_max <- args$idade_max
+
+# Carrega apenas funções; valida os limites antes de qualquer chamada de coleta.
+source(file.path("R", "sistemas", "sim.R"), local = TRUE)
+limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
 
 # -------------------------------
 # Tratamento UF
@@ -70,14 +76,14 @@ dados_brutos <- fetch_datasus(
 # Processamento
 # -------------------------------
 if (grepl("^SIM", sistema)) {
-  # Caminho relativo à raiz do projeto, conforme o contrato de execução da CLI.
-  source(file.path("R", "sistemas", "sim.R"), local = TRUE)
   dados_final <- preparar_exportacao_sim(
     dados_brutos,
     sexo = sexo,
     raca = raca,
     faixa = faixa,
-    cid = cid
+    cid = cid,
+    idade_min = idade_min,
+    idade_max = idade_max
   )
 } else {
   stop("Sistema não suportado (use SIM-DO).")
