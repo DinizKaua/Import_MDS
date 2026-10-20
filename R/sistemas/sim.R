@@ -1,6 +1,65 @@
 # Regras legadas do SIM, preservadas durante a separação do orquestrador.
 # Cada função recebe dados em memória; este módulo não realiza coleta ou exportação.
 
+# Recebe um vetor de caracteres da IDADE bruta, antes de process_sim().
+# Retorna um data.frame com uma linha por código, na mesma ordem, sem filtragem.
+# Contrato de unidades e sentinelas: microdatasus 3.0.0, R/process_sim.R,
+# commit 7109ec2c42cf674ba453e0d7a20d2f464890b543, linhas 91–143:
+# https://github.com/rfsaldanha/microdatasus/blob/7109ec2c42cf674ba453e0d7a20d2f464890b543/R/process_sim.R#L91
+# "valida" exige três dígitos ASCII, unidade reconhecida e, para meses, 00–11.
+# Meses 12–99 são inválidos por regra conservadora desta normalização em anos
+# completos; esse limite não é uma validação de domínio do pacote oficial.
+# Não foram confirmados limites específicos das demais unidades nessa fonte;
+# permanecem sem novos limites. Zero anos nas unidades subanuais aceitas é uma
+# convenção desta normalização, sem divisões.
+# NA, "000" e "999" são desconhecidos; vazio e demais formatos são inválidos.
+# A unidade de "000" continua identificável como minutos, mas a idade é NA.
+# Não interpreta TIPOBITO nem infere idade fetal ou idade a partir de datas.
+normalizar_idade_sim <- function(codigos) {
+  if (!is.character(codigos) || !is.null(dim(codigos))) {
+    stop("codigos deve ser um vetor de caracteres, com NA_character_ para ausentes.")
+  }
+
+  quantidade <- length(codigos)
+  resultado <- data.frame(
+    idade_codigo_original = unname(codigos),
+    idade_unidade_original = rep(NA_character_, quantidade),
+    idade_anos_completos = rep(NA_integer_, quantidade),
+    idade_situacao = rep("invalida", quantidade),
+    stringsAsFactors = FALSE
+  )
+
+  desconhecida <- is.na(codigos) | codigos %in% c("000", "999")
+  formato_valido <- !is.na(codigos) &
+    grepl("\\A[0-9]{3}\\z", codigos, perl = TRUE)
+  codigo_unidade <- substr(codigos, 1L, 1L)
+  unidades <- c(
+    "0" = "minutos", "1" = "horas", "2" = "dias", "3" = "meses",
+    "4" = "anos", "5" = "anos_mais_100"
+  )
+  reconhecida <- formato_valido & codigo_unidade %in% names(unidades)
+  resultado$idade_unidade_original[reconhecida] <-
+    unname(unidades[codigo_unidade[reconhecida]])
+
+  valida <- reconhecida & !desconhecida
+  meses <- which(valida & codigo_unidade == "3")
+  meses_fora_contrato <- meses[as.integer(substr(codigos[meses], 2L, 3L)) >= 12L]
+  valida[meses_fora_contrato] <- FALSE
+  resultado$idade_situacao[desconhecida] <- "desconhecida"
+  resultado$idade_situacao[valida] <- "valida"
+
+  subanual <- valida & codigo_unidade %in% c("0", "1", "2", "3")
+  resultado$idade_anos_completos[subanual] <- 0L
+  anos <- valida & codigo_unidade == "4"
+  resultado$idade_anos_completos[anos] <-
+    as.integer(substr(codigos[anos], 2L, 3L))
+  centena <- valida & codigo_unidade == "5"
+  resultado$idade_anos_completos[centena] <-
+    as.integer(substr(codigos[centena], 2L, 3L)) + 100L
+
+  resultado
+}
+
 processar_dados_sim <- function(dados_brutos) {
   microdatasus::process_sim(dados_brutos) |>
     dplyr::mutate(
