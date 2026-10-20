@@ -97,6 +97,7 @@ executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
   # A auditoria nova é testada separadamente; aqui comparamos todos os valores,
   # tipos e demais atributos da saída legada, sem mudar resultados esperados.
   attr(resultado, "contagens_etarias") <- NULL
+  attr(resultado, "contagens_datas") <- NULL
   resultado
 }
 
@@ -175,21 +176,33 @@ for (nome in names(casos)) {
   caso <- casos[[nome]]
   antigo <- executar_sim(bloco_base, entrada, caso[[1L]])
   novo <- executar_sim(bloco_novo, entrada, caso[[1L]])
-  # identical verifica valores, tipos, ordem de linhas/colunas e atributos.
+  # As linhas 11 (NA) e 26 (vazio), ambas adultas, são preservadas agora.
+  # Sua inclusão é explícita nos cenários cujos demais filtros as selecionam.
+  extras <- if (nome %in% c("sem_opcionais", "masculino", "branca", "faixa_18_39",
+                            "faixa_desconhecida_legada", "prefixo_i21", "prefixo_i2")) {
+    c(11L, 26L)
+  } else integer()
+  com_data <- novo[!is.na(novo$DATA), ]
+  # identical continua verificando todos os valores, tipos e ordem do subconjunto
+  # legado. A população completa nova também tem identificadores esperados.
   stopifnot(
-    identical(antigo, novo), identical(names(novo), colunas),
-    identical(novo$ESTABELECIMENTO, sprintf("%07d", caso[[2L]])),
-    identical(csv_em_memoria(antigo), csv_em_memoria(novo))
+    identical(antigo, com_data), identical(names(novo), colunas),
+    identical(novo$ESTABELECIMENTO, sprintf("%07d", sort(c(caso[[2L]], extras)))),
+    identical(novo$ESTABELECIMENTO[is.na(novo$DATA)], sprintf("%07d", extras)),
+    identical(csv_em_memoria(antigo), csv_em_memoria(com_data))
   )
   cat("OK:", nome, "-", nrow(novo), "linhas\n")
 }
 
 resultado <- executar_sim(bloco_novo, entrada)
+resultado_com_data <- resultado[!is.na(resultado$DATA), ]
 stopifnot(
-  identical(resultado$IDADE, as.character(c(18, 19, 39, 40, 59, 60, 80, 41, 50, 101, 18, 18, 39, 40, 59, 60))),
-  identical(resultado$DATA, rep(as.Date("2020-01-01"), length(todos))),
-  identical(resultado$DATA_DE_NASCIMENTO, rep("2002-01-01", length(todos))),
-  identical(resultado$DOENCA, toupper(entrada$CAUSABAS[todos])),
+  identical(resultado_com_data$IDADE, as.character(c(18, 19, 39, 40, 59, 60, 80, 41, 50, 101, 18, 18, 39, 40, 59, 60))),
+  identical(resultado_com_data$DATA, rep(as.Date("2020-01-01"), length(todos))),
+  identical(resultado_com_data$DATA_DE_NASCIMENTO, rep("2002-01-01", length(todos))),
+  identical(resultado_com_data$DOENCA, toupper(entrada$CAUSABAS[todos])),
+  identical(resultado$IDADE[is.na(resultado$DATA)], c("38", "18")),
+  identical(resultado$DOENCA[is.na(resultado$DATA)], c("I21", "I21")),
   is.na(resultado$SEXO[match("0000013", resultado$ESTABELECIMENTO)]),
   is.na(resultado$RACA_COR[match("0000012", resultado$ESTABELECIMENTO)])
 )
@@ -206,8 +219,16 @@ for (nome in names(entradas_adicionais)) {
   dados <- entradas_adicionais[[nome]]
   antigo <- executar_sim(bloco_base, dados)
   novo <- executar_sim(bloco_novo, dados)
-  stopifnot(identical(antigo, novo), identical(csv_em_memoria(antigo), csv_em_memoria(novo)))
-  if (nome %in% c("todas_excluidas", "data_invalida")) stopifnot(nrow(novo) == 0L)
+  com_data <- novo[!is.na(novo$DATA), ]
+  stopifnot(identical(antigo, com_data), identical(csv_em_memoria(antigo), csv_em_memoria(com_data)))
+  if (nome == "todas_excluidas") stopifnot(
+    nrow(antigo) == 0L, nrow(novo) == 2L, all(is.na(novo$DATA)),
+    identical(novo$ESTABELECIMENTO, c("0000011", "0000026"))
+  )
+  if (nome == "data_invalida") stopifnot(
+    nrow(antigo) == 0L, nrow(novo) == 1L, is.na(novo$DATA),
+    identical(novo$ESTABELECIMENTO, "0000002")
+  )
   if (nome == "duplicatas") stopifnot(identical(novo$ESTABELECIMENTO, c("0000002", "0000002", "0000003")))
   if (nome == "ordem_invertida") stopifnot(identical(novo$ESTABELECIMENTO, rev(resultado$ESTABELECIMENTO)))
   cat("OK:", nome, "\n")
@@ -266,5 +287,5 @@ for (codigo in list(codigo_base, codigo_novo)) {
     )
   )
 }
-cat("OK: configuração explícita de 18 anos reproduz o legado; coleta/exportação e nomes preservados\n")
+cat("OK: idade explícita de 18 anos reproduz o legado nas datas válidas; linhas sem data são preservadas; coleta/exportação e nomes mantidos\n")
 cat("PASSOU: 20 cenários de filtros e 4 entradas adicionais; nenhuma coleta executada.\n")

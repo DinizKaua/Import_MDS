@@ -27,26 +27,26 @@ colunas <- c(
   "MUNICIPIO_RESIDENCIA", "ESTADO_NATURALIDADE", "MUNICIPIO_NATURALIDADE",
   "ASSISTENCIA_MEDICA", "DOENCA"
 )
-sem_limites <- c(1:21, 23L)
-maiores <- 11:17
-validas <- c(2:6, 9:17)
+sem_limites <- 1:23
+maiores <- c(11:17, 22L)
+validas <- c(2:6, 9:17, 22L)
 casos <- list(
   nenhum_limite = list(list(), sem_limites),
   apenas_minimo = list(list(idade_min = 18), maiores),
-  apenas_maximo = list(list(idade_max = 18), c(2:6, 9:11)),
-  ambos_inclusivos = list(list(idade_min = 18, idade_max = 59), 11:14),
-  limite_igual = list(list(idade_min = 18, idade_max = 18), 11L),
+  apenas_maximo = list(list(idade_max = 18), c(2:6, 9:11, 22L)),
+  ambos_inclusivos = list(list(idade_min = 18, idade_max = 59), c(11:14, 22L)),
+  limite_igual = list(list(idade_min = 18, idade_max = 18), c(11L, 22L)),
   zero_e_menores_de_um_ano = list(list(idade_max = 0), c(2:6, 9L)),
   minimo_zero_exclui_nao_interpretaveis = list(list(idade_min = 0), validas),
   centenarios = list(list(idade_min = 100), 16:17),
   maximo_amplo_ainda_exclui_nao_interpretaveis = list(list(idade_max = 200), validas),
   resultado_vazio = list(list(idade_min = 102), integer()),
-  faixa_18_39 = list(list(faixa = "18-39"), 11:12),
+  faixa_18_39 = list(list(faixa = "18-39"), c(11:12, 22L)),
   faixa_40_59 = list(list(faixa = "40-59"), 13:14),
   faixa_60_mais = list(list(faixa = "60+"), 15:17),
   faixa_all_e_novos_limites = list(list(faixa = "ALL", idade_min = 18), maiores),
   faixa_desconhecida_sem_efeito_legado = list(list(faixa = "outra"), sem_limites),
-  limites_textuais = list(list(idade_min = "018", idade_max = "059"), 11:14),
+  limites_textuais = list(list(idade_min = "018", idade_max = "059"), c(11:14, 22L)),
   sexo_raca_cid_sem_limites = list(list(sexo = "Feminino", raca = "Parda", cid = "I21"), c(5L, 11L, 14L)),
   sexo_raca_cid_com_limites = list(list(sexo = "Feminino", raca = "Parda", cid = "I21", idade_min = 18), c(11L, 14L))
 )
@@ -65,20 +65,21 @@ for (nome in names(casos)) {
   cat("OK:", nome, "-", nrow(resultado), "linhas\n")
 }
 
-# A contagem etária ocorre após retirar datas ausentes e antes de sexo/raça/CID.
+# A linha 22 (18 anos, data ausente) agora participa da seleção etária.
+# Os demais critérios e resultados esperados permanecem os mesmos.
 esperado_sem <- list(
   filtro_ativo = FALSE, idade_min = NULL, idade_max = NULL,
-  entrada = 23L, excluidos_sem_data = 1L, antes_filtro_etario = 22L,
-  idades_validas = 14L, idades_desconhecidas = 3L, idades_invalidas = 5L,
+  entrada = 23L, excluidos_sem_data = 0L, antes_filtro_etario = 23L,
+  idades_validas = 15L, idades_desconhecidas = 3L, idades_invalidas = 5L,
   excluidos_desconhecidos = 0L, excluidos_invalidos = 0L,
-  excluidos_fora_limites = 0L, apos_filtro_etario = 22L, apos_demais_filtros = 22L
+  excluidos_fora_limites = 0L, apos_filtro_etario = 23L, apos_demais_filtros = 23L
 )
 esperado_min <- list(
   filtro_ativo = TRUE, idade_min = 18, idade_max = NULL,
-  entrada = 23L, excluidos_sem_data = 1L, antes_filtro_etario = 22L,
-  idades_validas = 14L, idades_desconhecidas = 3L, idades_invalidas = 5L,
+  entrada = 23L, excluidos_sem_data = 0L, antes_filtro_etario = 23L,
+  idades_validas = 15L, idades_desconhecidas = 3L, idades_invalidas = 5L,
   excluidos_desconhecidos = 3L, excluidos_invalidos = 5L,
-  excluidos_fora_limites = 7L, apos_filtro_etario = 7L, apos_demais_filtros = 7L
+  excluidos_fora_limites = 7L, apos_filtro_etario = 8L, apos_demais_filtros = 8L
 )
 stopifnot(
   identical(attr(resultados$nenhum_limite, "contagens_etarias"), esperado_sem),
@@ -91,7 +92,7 @@ cat("OK: contagens explícitas e separadas para desconhecidos, inválidos e fora
 # como zero. A idade usada no filtro fica nas colunas auxiliares, não no CSV.
 stopifnot(
   identical(resultados$zero_e_menores_de_um_ano$IDADE, c(rep(NA_character_, 5L), "0")),
-  identical(resultados$apenas_minimo$IDADE, c("18", "39", "40", "59", "60", "100", "101"))
+  identical(resultados$apenas_minimo$IDADE, c("18", "39", "40", "59", "60", "100", "101", "18"))
 )
 
 erro <- function(expr) tryCatch({ force(expr); NULL }, error = function(e) conditionMessage(e))
@@ -121,7 +122,7 @@ cat("OK: limites inválidos, mínimo maior que máximo e conflitos de faixa reje
 antes <- serialize(entrada, NULL)
 processados <- processar_dados_sim(entrada)
 ids <- as.character(seq_len(nrow(entrada)))
-normalizadas <- normalizar_idade_sim(entrada$IDADE)
+validacoes <- cbind(normalizar_idade_sim(entrada$IDADE), validar_data_obito_sim(entrada$DTOBITO))
 stopifnot(
   identical(serialize(entrada, NULL), antes),
   identical(processados$.import_mds_registro_id, ids),
@@ -132,7 +133,7 @@ stopifnot(
               18L, 39L, 40L, 59L, 60L, 100L, 101L, NA_integer_, NA_integer_,
               NA_integer_, NA_integer_, 18L, NA_integer_)),
   all(is.na(processados$IDADE[c(1L, 18L, 19L)])),
-  identical(associar_idades_sim(processados[23:1, ], ids, normalizadas), processados)
+  identical(associar_validacoes_sim(processados[23:1, ], ids, validacoes), processados)
 )
 corrompidos <- list(
   perda = processados[-1L, ],
@@ -146,13 +147,13 @@ corrompidos$id_ausente$.import_mds_registro_id[1L] <- NA_character_
 corrompidos$id_desconhecido$.import_mds_registro_id[1L] <- "inexistente"
 corrompidos$id_duplicado$.import_mds_registro_id[2L] <- "1"
 for (dados in corrompidos) {
-  stopifnot(identical(erro(associar_idades_sim(dados, ids, normalizadas)),
+  stopifnot(identical(erro(associar_validacoes_sim(dados, ids, validacoes)),
                       "Não foi possível garantir a correspondência entre registros brutos e processados do SIM."))
 }
 colisao <- entrada
 colisao$.import_mds_registro_id <- ids
 stopifnot(identical(erro(processar_dados_sim(colisao)),
-                    "Dados brutos do SIM contêm colunas reservadas para associação etária."))
+                    "Dados brutos do SIM contêm colunas reservadas para associação de registros."))
 cat("OK: associação por ID, restauração da ordem e interrupção em perdas/duplicações/corrupção\n")
 
 duplicadas <- entrada[c(11L, 11L, 5L), ]
@@ -213,7 +214,7 @@ cli <- simular_cli(c("--idade_min", "18", "--idade_max", "59", "--faixa", "ALL",
 stopifnot(
   identical(cli$limites_idade, list(idade_min = 18, idade_max = 59)),
   identical(cli$uf_param, "all"),
-  identical(cli$dados_final$ESTABELECIMENTO, sprintf("%07d", 11:14)),
+  identical(cli$dados_final$ESTABELECIMENTO, sprintf("%07d", c(11:14, 22L))),
   identical(simular_cli(character())$dados_final$ESTABELECIMENTO, sprintf("%07d", sem_limites)),
   identical(simular_cli(c("--faixa", "60+"))$dados_final$ESTABELECIMENTO, sprintf("%07d", 15:17))
 )

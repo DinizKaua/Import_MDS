@@ -1,7 +1,7 @@
 # Regras legadas do SIM, preservadas durante a separação do orquestrador.
 # Cada função recebe dados em memória; este módulo não realiza coleta ou exportação.
 
-# Validação isolada da DTOBITO bruta; não é chamada pelo fluxo principal.
+# Validação da DTOBITO bruta, executada antes de process_sim().
 # Referência do formato: microdatasus 3.0.0, bloco DTOBITO de R/process_sim.R:
 # https://github.com/rfsaldanha/microdatasus/blob/7109ec2c42cf674ba453e0d7a20d2f464890b543/R/process_sim.R
 # Exige oito dígitos ASCII DDMMAAAA, calendário e conversão reversível.
@@ -150,17 +150,18 @@ resolver_limites_idade_sim <- function(idade_min = NULL, idade_max = NULL,
 }
 
 # Não faz junções: exige uma correspondência bijetiva pelos identificadores
-# temporários e restaura a ordem original antes de anexar as idades preservadas.
-associar_idades_sim <- function(dados, ids_originais, idades) {
+# temporários e restaura a ordem original antes de anexar idades e datas brutas
+# validadas. As duas funções de validação preservam a ordem e a cardinalidade.
+associar_validacoes_sim <- function(dados, ids_originais, validacoes) {
   ids_processados <- dados[[".import_mds_registro_id"]]
-  if (nrow(dados) != length(ids_originais) || nrow(idades) != length(ids_originais) ||
+  if (nrow(dados) != length(ids_originais) || nrow(validacoes) != length(ids_originais) ||
       anyNA(ids_originais) || anyDuplicated(ids_originais) ||
       !is.character(ids_processados) || anyNA(ids_processados) ||
       anyDuplicated(ids_processados) || !setequal(ids_processados, ids_originais)) {
     stop("Não foi possível garantir a correspondência entre registros brutos e processados do SIM.")
   }
   dados <- dados[match(ids_originais, ids_processados), , drop = FALSE]
-  for (nome in names(idades)) dados[[nome]] <- idades[[nome]]
+  for (nome in names(validacoes)) dados[[nome]] <- validacoes[[nome]]
   dados
 }
 
@@ -168,18 +169,23 @@ processar_dados_sim <- function(dados_brutos) {
   if (!is.data.frame(dados_brutos) || !"IDADE" %in% names(dados_brutos)) {
     stop("Dados brutos do SIM devem conter a coluna IDADE original.")
   }
+  if (!"DTOBITO" %in% names(dados_brutos)) {
+    stop("Dados brutos do SIM devem conter a coluna DTOBITO original.")
+  }
   idades <- normalizar_idade_sim(dados_brutos$IDADE)
-  reservadas <- c(".import_mds_registro_id", names(idades))
+  datas <- validar_data_obito_sim(dados_brutos$DTOBITO)
+  validacoes <- cbind(idades, datas)
+  reservadas <- c(".import_mds_registro_id", names(validacoes))
   if (any(reservadas %in% names(dados_brutos))) {
-    stop("Dados brutos do SIM contêm colunas reservadas para associação etária.")
+    stop("Dados brutos do SIM contêm colunas reservadas para associação de registros.")
   }
   ids <- as.character(seq_len(nrow(dados_brutos)))
   dados_trabalho <- as.data.frame(dados_brutos)
   dados_trabalho$.import_mds_registro_id <- ids
   dados <- microdatasus::process_sim(dados_trabalho)
-  associar_idades_sim(dados, ids, idades) |>
+  associar_validacoes_sim(dados, ids, validacoes) |>
     dplyr::mutate(
-      data_evento = as.Date(DTOBITO),
+      data_evento = data_obito_validada,
       cid_valor = toupper(CAUSABAS),
       IDADE_NUM = as.numeric(IDADEanos)
     )
@@ -190,8 +196,16 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
                               idade_min = NULL, idade_max = NULL) {
   limites <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
   entrada <- nrow(dados)
-  # A exclusão de datas ausentes permanece anterior aos filtros epidemiológicos.
-  dados <- dplyr::filter(dados, !is.na(data_evento))
+  # Categorias de data anteriores a qualquer filtro. A validação não exclui
+  # registros; datas ausentes/inválidas seguem para todos os filtros existentes.
+  contagens_datas <- list(
+    entrada = entrada,
+    datas_validas = sum(dados$data_obito_situacao == "valida"),
+    datas_ausentes = sum(dados$data_obito_situacao == "ausente"),
+    datas_invalidas = sum(dados$data_obito_situacao == "invalida"),
+    preservados_apos_validacao = entrada,
+    excluidos_por_data = 0L
+  )
   ativo <- !is.null(limites$idade_min) || !is.null(limites$idade_max)
   valida <- dados$idade_situacao == "valida" & !is.na(dados$idade_anos_completos)
   manter <- rep(TRUE, nrow(dados))
@@ -206,10 +220,11 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
         dados$idade_anos_completos <= limites$idade_max
     }
   }
-  # Contagens referentes à etapa etária, após a exclusão de datas ausentes.
+  # Etapa etária sobre todos os registros validados. O campo legado
+  # excluidos_sem_data continua contando exclusões por data: agora sempre zero.
   contagens <- list(
     filtro_ativo = ativo, idade_min = limites$idade_min, idade_max = limites$idade_max,
-    entrada = entrada, excluidos_sem_data = entrada - nrow(dados),
+    entrada = entrada, excluidos_sem_data = 0L,
     antes_filtro_etario = nrow(dados),
     idades_validas = sum(valida),
     idades_desconhecidas = sum(dados$idade_situacao == "desconhecida"),
@@ -220,6 +235,7 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
     apos_filtro_etario = sum(manter)
   )
   dados <- dados[manter, , drop = FALSE]
+  contagens_datas$apos_filtro_etario <- nrow(dados)
 
   if (sexo != "ALL") {
     dados <- dplyr::filter(dados, SEXO == sexo)
@@ -234,7 +250,9 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
   }
 
   contagens$apos_demais_filtros <- nrow(dados)
+  contagens_datas$apos_demais_filtros <- nrow(dados)
   attr(dados, "contagens_etarias") <- contagens
+  attr(dados, "contagens_datas") <- contagens_datas
   dados
 }
 
@@ -283,5 +301,8 @@ preparar_exportacao_sim <- function(dados_brutos, sexo = "ALL", raca = "ALL",
     )
   resultado <- selecionar_colunas_sim(dados)
   attr(resultado, "contagens_etarias") <- attr(dados, "contagens_etarias")
+  contagens_datas <- attr(dados, "contagens_datas")
+  contagens_datas$total_final_exportavel <- nrow(resultado)
+  attr(resultado, "contagens_datas") <- contagens_datas
   resultado
 }
