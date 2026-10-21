@@ -302,8 +302,9 @@ processar_dados_sim <- function(dados_brutos) {
 
 filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
                               faixa = "ALL", cid = "ALL",
-                              idade_min = NULL, idade_max = NULL) {
+                              idade_min = NULL, idade_max = NULL, consulta_cid = NULL) {
   limites <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
+  consulta_cid <- resolver_consulta_cid(cid, consulta_cid)
   entrada <- nrow(dados)
   contagens_naturalidade <- list(antes_filtros = contar_naturalidade_sim(dados))
   # Categorias de data anteriores a qualquer filtro. A validação não exclui
@@ -356,8 +357,8 @@ filtrar_dados_sim <- function(dados, sexo = "ALL", raca = "ALL",
     dados <- dplyr::filter(dados, RACACOR == raca)
   }
 
-  if (cid != "ALL") {
-    dados <- dplyr::filter(dados, startsWith(cid_valor, cid))
+  if (consulta_cid$modalidade != "all") {
+    dados <- dplyr::filter(dados, selecionar_cid(cid_valor, consulta_cid))
   }
 
   contagens$apos_demais_filtros <- nrow(dados)
@@ -405,12 +406,13 @@ selecionar_colunas_sim <- function(dados) {
 
 preparar_exportacao_sim <- function(dados_brutos, sexo = "ALL", raca = "ALL",
                                    faixa = "ALL", cid = "ALL",
-                                   idade_min = NULL, idade_max = NULL) {
+                                   idade_min = NULL, idade_max = NULL, consulta_cid = NULL) {
   limites <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
+  consulta_cid <- resolver_consulta_cid(cid, consulta_cid)
   dados <- processar_dados_sim(dados_brutos) |>
     filtrar_dados_sim(
-      sexo = sexo, raca = raca, cid = cid,
-      idade_min = limites$idade_min, idade_max = limites$idade_max
+      sexo = sexo, raca = raca, cid = consulta_cid$valor,
+      idade_min = limites$idade_min, idade_max = limites$idade_max, consulta_cid = consulta_cid
     )
   resultado <- selecionar_colunas_sim(dados)
   attr(resultado, "contagens_etarias") <- attr(dados, "contagens_etarias")

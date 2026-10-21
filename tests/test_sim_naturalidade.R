@@ -4,6 +4,7 @@ local({
   suppressPackageStartupMessages({ library(microdatasus); library(dplyr) })
   stopifnot(as.character(packageVersion("microdatasus")) == "3.0.0")
   modulo <- new.env(parent = globalenv())
+  sys.source("R/comum/cid.R", envir = modulo)
   sys.source("R/sistemas/sim.R", envir = modulo)
   converter <- modulo$converter_naturalidade_sim
   erro <- function(expr) tryCatch({force(expr); NULL}, error = function(e) conditionMessage(e))
@@ -119,6 +120,7 @@ local({
   sem_natural <- microdatasus::process_sim(entrada[, names(entrada) != "NATURAL"])
   stopifnot(identical(novo[, names(sem_natural)], sem_natural))
   isolado <- new.env(parent = globalenv())
+  sys.source("R/comum/cid.R", envir = isolado)
   sys.source("R/sistemas/sim.R", envir = isolado)
   isolado$associar_validacoes_sim <- function(dados, ids_originais, validacoes) {
     stopifnot(!"NATURAL" %in% names(dados))

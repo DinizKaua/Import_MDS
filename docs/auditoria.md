@@ -69,7 +69,13 @@ O orquestrador verifica os três destinos antes de sua única chamada a
 `fetch_datasus()`, mantendo os mesmos parâmetros de coleta. Registra anos e meses
 solicitados, UF solicitada e efetiva, `stop_on_error`, sexo, raça/cor, prefixo CID
 e limites etários efetivos. `faixa_legada_informada` conserva o argumento legado;
-os limites resolvidos indicam seu efeito real. Os meses não passam a ser um filtro
+os limites resolvidos indicam seu efeito real.
+O CID também aceita intervalos inclusivos de categorias segundo a referência
+local descrita em [cid10.md](cid10.md). Prefixos continuam literais. O objeto
+opcional `metadados.consulta.filtros.cid_intervalo` registra modalidade, limites,
+referência e categorias elegíveis, sem alterar o campo textual `cid`, as contagens
+ou a versão JSON 1.1.0. A validação antecede a reserva da pasta e a coleta.
+Os meses não passam a ser um filtro
 de ocorrência no SIM. O início registrado antecede a coleta, após a validação
 dos parâmetros e dos destinos. Python fica explicitamente indisponível: a
 integração não recebe uma versão verificável do chamador. A identificação Git é

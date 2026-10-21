@@ -62,15 +62,16 @@ prefixo_novo <- codigo_novo[seq_len(indice_despacho(codigo_novo) - 1L)]
 adicao_orquestracao <- vapply(prefixo_novo, function(expr) {
   is.call(expr) && (
     identical(expr[[1L]], as.name("source")) ||
+      identical(expr, quote(cid <- consulta_cid$valor)) ||
       identical(expr, quote(.exigir_jsonlite())) ||
       identical(expr, quote(if (!nzchar(Sys.which("sha256sum"))) stop("Utilitário sha256sum indisponível."))) ||
       (identical(expr[[1L]], as.name("<-")) &&
          as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade",
                                        "nome_arquivo", "caminho_arquivo", "destinos", "metadados",
-                                       "localizar_raiz_projeto", "raiz_projeto", "estrutura_saida"))
+                                       "localizar_raiz_projeto", "raiz_projeto", "estrutura_saida", "consulta_cid"))
   )
 }, logical(1))
-stopifnot(sum(adicao_orquestracao) == 15L)
+stopifnot(sum(adicao_orquestracao) == 18L)
 stopifnot(identical(
   codigo_base[seq_len(indice_despacho(codigo_base) - 1L)],
   prefixo_novo[!adicao_orquestracao]
@@ -88,11 +89,12 @@ executar_sim <- function(bloco, entrada, filtros = list(), sistema = "SIM-DO") {
   ambiente <- list2env(list(
     dados_brutos = entrada, sistema = sistema,
     sexo = "ALL", raca = "ALL", faixa = "ALL", cid = "ALL",
-    idade_min = NULL, idade_max = NULL,
+    idade_min = NULL, idade_max = NULL, consulta_cid = NULL,
     fetch_datasus = function(...) stop("Coleta proibida nos testes locais.")
   ), parent = globalenv())
   list2env(filtros, envir = ambiente)
   if (identical(bloco, bloco_novo)) {
+    source(file.path("R", "comum", "cid.R"), local = ambiente)
     source(file.path("R", "sistemas", "sim.R"), local = ambiente)
     # A configuração explícita de 18 anos reproduz a seleção da linha de base.
     # As três faixas específicas já fornecem seus próprios limites equivalentes.
@@ -269,7 +271,7 @@ nome_legado <- function(codigo, uf_param, filtros = list()) {
   ambiente <- list2env(list(
     sistema = "SIM-DO", uf_param = uf_param, ano_inicio = 2015, ano_fim = 2024,
     cid = "ALL", sexo = "ALL", raca = "ALL", faixa = "ALL",
-    idade_min = NULL, idade_max = NULL, mes_inicio = 1, mes_fim = 12,
+    idade_min = NULL, idade_max = NULL, consulta_cid = NULL, mes_inicio = 1, mes_fim = 12,
     limites_idade = list(idade_min = NULL, idade_max = NULL)
   ), parent = baseenv())
   list2env(filtros, envir = ambiente)

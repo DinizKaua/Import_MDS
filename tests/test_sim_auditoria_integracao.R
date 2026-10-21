@@ -17,7 +17,7 @@ local({
   temporario <- tempfile("import-mds-sim-auditoria-")
   stopifnot(dir.create(temporario))
   on.exit(unlink(temporario, recursive = TRUE), add = TRUE)
-  arquivos <- c("R/coletar_dados.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")
+  arquivos <- c("R/comum/cid.R", "R/coletar_dados.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")
   projeto <- function() {
     d <- tempfile("projeto com espaços-", tmpdir = temporario)
     for (p in arquivos) {

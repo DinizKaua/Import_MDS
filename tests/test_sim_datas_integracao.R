@@ -4,6 +4,7 @@ local({
   suppressPackageStartupMessages({ library(microdatasus); library(dplyr) })
   stopifnot(as.character(packageVersion("microdatasus")) == "3.0.0")
   modulo <- new.env(parent = globalenv())
+  sys.source("R/comum/cid.R", envir = modulo)
   sys.source("R/sistemas/sim.R", envir = modulo)
   preparar <- modulo$preparar_exportacao_sim
   sem_contagens <- function(x) {
@@ -161,6 +162,7 @@ local({
   )
   for (alterar in alteracoes) {
     isolado <- new.env(parent = globalenv())
+    sys.source("R/comum/cid.R", envir = isolado)
     sys.source("R/sistemas/sim.R", envir = isolado)
     isolado$associar_validacoes_sim <- function(dados, ids_originais, validacoes) {
       modulo$associar_validacoes_sim(alterar(dados), ids_originais, validacoes)
@@ -172,6 +174,7 @@ local({
   cat("OK: restauração por ID e interrupção do processamento em perdas, duplicações e IDs inesperados\n")
 
   estrutural <- new.env(parent = globalenv())
+  sys.source("R/comum/cid.R", envir = estrutural)
   sys.source("R/sistemas/sim.R", envir = estrutural)
   estrutural$validar_data_obito_sim <- function(...) stop("Validação não deveria iniciar.")
   stopifnot(identical(erro(estrutural$processar_dados_sim(entrada[, names(entrada) != "DTOBITO"])),

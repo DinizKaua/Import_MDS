@@ -2,6 +2,7 @@
 # Apenas dados sintéticos; o script de coleta é analisado, nunca executado inteiro.
 suppressPackageStartupMessages(library(microdatasus))
 stopifnot(as.character(packageVersion("microdatasus")) == "3.0.0")
+source(file.path("R", "comum", "cid.R"), local = TRUE)
 source(file.path("R", "sistemas", "sim.R"), local = TRUE)
 
 idades <- c(
@@ -193,7 +194,7 @@ simular_cli <- function(argumentos) {
   dir.create(file.path(diretorio, "R", "sistemas"), recursive = TRUE)
   dir.create(file.path(diretorio, "R", "comum"), recursive = TRUE)
   on.exit({ setwd(raiz); unlink(diretorio, recursive = TRUE) }, add = TRUE)
-  for (arquivo in c("R/coletar_dados.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")) {
+  for (arquivo in c("R/comum/cid.R", "R/coletar_dados.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")) {
     stopifnot(file.copy(file.path(raiz, arquivo), file.path(diretorio, arquivo)))
   }
   setwd(diretorio)

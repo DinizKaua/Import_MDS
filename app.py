@@ -1,6 +1,8 @@
 import subprocess
 import sys
 from pathlib import Path
+import json
+import re
 
 # -------------------------------
 #   Tipo de sistema
@@ -77,17 +79,52 @@ def escolher_sexo():
 # -------------------------------
 #   Doença (CID)
 # -------------------------------
+def interpretar_intervalo_cid(valor, referencia=None):
+    # Sem hífen, preservar o prefixo literal, inclusive espaços/ponto/vazio.
+    if "-" not in valor:
+        return valor
+    partes = re.fullmatch(r"[ \t]*([A-Z][0-9]{2})[ \t]*-[ \t]*([A-Z][0-9]{2})[ \t]*", valor.upper())
+    if partes is None:
+        raise ValueError("Intervalo inválido: use categorias completas, como I10-I15, com um único hífen.")
+    inicio, fim = partes.groups()
+    if inicio[0] != fim[0]:
+        raise ValueError("Os limites CID devem ter a mesma letra.")
+    if int(inicio[1:]) > int(fim[1:]):
+        raise ValueError("Intervalo CID com limites invertidos.")
+    if referencia is None:
+        caminho = Path(__file__).resolve().parent / "referencias" / "cid10" / "oms_2019_codigos.json"
+        try:
+            with caminho.open(encoding="utf-8") as arquivo:
+                referencia = json.load(arquivo)
+        except (OSError, ValueError) as erro:
+            raise RuntimeError("Referência local CID-10 indisponível ou ilegível.") from erro
+    try:
+        categorias = referencia["categorias"]
+        if (referencia["versao_indice"] != "1.0.0" or not isinstance(categorias, list)
+                or not categorias or not all(isinstance(c, str) and re.fullmatch(r"[A-Z][0-9]{2}", c) for c in categorias)
+                or len(set(categorias)) != len(categorias)
+                or referencia["referencia"]["quantidade_categorias"] != len(categorias)):
+            raise ValueError("Contrato inválido")
+    except (KeyError, TypeError, ValueError) as erro:
+        raise RuntimeError("Referência local CID-10 inválida ou incompleta.") from erro
+    if inicio not in categorias or fim not in categorias:
+        raise ValueError("Limite CID inexistente na referência local utilizada.")
+    return f"{inicio}-{fim}"
+
+
 def escolher_doenca():
     print("\nCódigo da doença (CID-10)")
-    print("Ex: I21 (Infarto), C50 (Câncer)")
+    print("Digite um prefixo, como I21, ou um intervalo de categorias, como I10-I15.")
     print("Digite ALL para não filtrar")
 
-    valor = input("Digite: ").upper()
-
-    if valor == "":
-        return "ALL"
-
-    return valor
+    while True:
+        valor = input("Digite: ").upper()
+        if valor == "":
+            return "ALL"
+        try:
+            return interpretar_intervalo_cid(valor)
+        except ValueError as erro:
+            print(erro)
 
 # -------------------------------
 #   Raça/Cor
@@ -158,7 +195,11 @@ def main():
     sexo = escolher_sexo()
     raca = escolher_raca()
     idade_min, idade_max = escolher_limites_idade()
-    doenca = escolher_doenca()
+    try:
+        doenca = escolher_doenca()
+    except RuntimeError as erro:
+        print("\nNão foi possível validar o intervalo CID:", erro)
+        return 1
 
 
     print("\nExecutando coleta...\n")

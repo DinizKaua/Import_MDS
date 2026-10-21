@@ -2,7 +2,7 @@
 construir_nome_csv <- function(sistema, uf, ano_inicio, ano_fim,
                                cid = "ALL", sexo = "ALL", raca = "ALL", faixa = "ALL",
                                idade_min = NULL, idade_max = NULL,
-                               mes_inicio = NULL, mes_fim = NULL) {
+                               mes_inicio = NULL, mes_fim = NULL, consulta_cid = NULL) {
   texto <- function(valor, permitir_vazio = FALSE) {
     if (length(valor) != 1L || is.na(valor) ||
         (!permitir_vazio && !nzchar(as.character(valor)))) {
@@ -28,6 +28,9 @@ construir_nome_csv <- function(sistema, uf, ano_inicio, ano_fim,
   }
   for (valor in list(sistema, uf, ano_inicio, ano_fim)) texto(valor)
   for (valor in list(cid, sexo, raca, faixa)) texto(valor, permitir_vazio = TRUE)
+  intervalo <- !is.null(consulta_cid) && identical(consulta_cid$modalidade, "intervalo")
+  if (intervalo && (!inherits(consulta_cid, "consulta_cid") ||
+                    !identical(cid, consulta_cid$valor))) stop("Intervalo CID do nome não corresponde à consulta validada.")
   nome <- paste0(
     "dados_", componente(sistema), "_", if (uf == "all") "BR" else componente(uf),
     "_", componente(ano_inicio), "_", componente(ano_fim)
@@ -39,7 +42,7 @@ construir_nome_csv <- function(sistema, uf, ano_inicio, ano_fim,
   # O formato legado é inequívoco para os domínios usuais. Entradas atípicas
   # continuam com a mesma semântica de filtro, mas recebem campos identificados.
   rotulos <- c("Masculino", "Feminino", "Branca", "Preta", "Parda", "Amarela", "Indigena", "Indígena")
-  legado <- (cid == "ALL" || (grepl("\\A[A-Z][A-Z0-9]*\\z", cid, perl = TRUE) &&
+  legado <- (intervalo || cid == "ALL" || (grepl("\\A[A-Z][A-Z0-9]*\\z", cid, perl = TRUE) &&
                               !cid %in% toupper(rotulos))) &&
     sexo %in% c("ALL", "Masculino", "Feminino") &&
     raca %in% c("ALL", "Branca", "Preta", "Parda", "Amarela", "Indigena", "Indígena") &&
@@ -47,6 +50,10 @@ construir_nome_csv <- function(sistema, uf, ano_inicio, ano_fim,
   filtros <- list(cid = cid, sexo = sexo, raca = raca, faixa = faixa)
   for (chave in names(filtros)) {
     valor <- filtros[[chave]]
+    if (chave == "cid" && intervalo) {
+      nome <- paste0(nome, "_cid-intervalo-", consulta_cid$valor)
+      next
+    }
     if (legado) {
       if (valor != "ALL") nome <- paste0(nome, "_", valor)
     } else {

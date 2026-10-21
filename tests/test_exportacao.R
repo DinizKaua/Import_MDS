@@ -159,7 +159,8 @@ local({
   dir_cli <- file.path(diretorio, "projeto")
   dir.create(file.path(dir_cli, "R", "comum"), recursive = TRUE)
   dir.create(file.path(dir_cli, "R", "sistemas"), recursive = TRUE)
-  stopifnot(file.copy(file.path(raiz, "R", "coletar_dados.R"), file.path(dir_cli, "R", "coletar_dados.R")),
+  stopifnot(file.copy(file.path(raiz, "R", "comum", "cid.R"), file.path(dir_cli, "R", "comum", "cid.R")),
+            file.copy(file.path(raiz, "R", "coletar_dados.R"), file.path(dir_cli, "R", "coletar_dados.R")),
             file.copy(modulo_arquivo, file.path(dir_cli, "R", "comum", "exportacao.R")),
             file.copy(file.path(raiz, "R", "comum", "auditoria.R"), file.path(dir_cli, "R", "comum", "auditoria.R")),
             file.copy(file.path(raiz, "R", "sistemas", "sim.R"), file.path(dir_cli, "R", "sistemas", "sim.R")))

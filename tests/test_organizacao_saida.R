@@ -185,7 +185,7 @@ local({
   prefixo <- codigo[seq_len(fetch - 1L)]
   stopifnot(!"fetch_datasus" %in% all.names(prefixo))
   projeto <- caso()
-  for (f in c("R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")) {
+  for (f in c("R/comum/cid.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")) {
     dir.create(dirname(file.path(projeto, f)), recursive = TRUE, showWarnings = FALSE)
     stopifnot(file.copy(file.path(raiz, f), file.path(projeto, f)))
   }

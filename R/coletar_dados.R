@@ -71,8 +71,11 @@ idade_min <- args$idade_min
 idade_max <- args$idade_max
 
 # Carrega apenas funções; valida os limites antes de qualquer chamada de coleta.
+source(file.path(raiz_projeto, "R", "comum", "cid.R"), local = TRUE)
 source(file.path(raiz_projeto, "R", "sistemas", "sim.R"), local = TRUE)
 limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
+consulta_cid <- interpretar_consulta_cid(cid)
+cid <- consulta_cid$valor
 
 # -------------------------------
 # Tratamento UF
@@ -88,7 +91,7 @@ nome_arquivo <- construir_nome_csv(
   cid = cid, sexo = sexo, raca = raca, faixa = faixa,
   idade_min = if (is.null(idade_min)) NULL else limites_idade$idade_min,
   idade_max = if (is.null(idade_max)) NULL else limites_idade$idade_max,
-  mes_inicio = mes_inicio, mes_fim = mes_fim
+  mes_inicio = mes_inicio, mes_fim = mes_fim, consulta_cid = consulta_cid
 )
 estrutura_saida <- preparar_diretorio_extracao(raiz_projeto, nome_arquivo)
 destinos <- destinos_resultado_auditado(estrutura_saida$principal, estrutura_saida$logs)
@@ -100,8 +103,9 @@ metadados <- preparar_metadados_auditoria(
   parametros = list(year_start = ano_inicio, year_end = ano_fim,
                     month_start = mes_inicio, month_end = mes_fim,
                     uf = uf_param, information_system = sistema, stop_on_error = TRUE),
-  filtros = list(sexo = sexo, raca = raca, cid = cid, faixa_legada_informada = faixa,
-                 idade_min = limites_idade$idade_min, idade_max = limites_idade$idade_max),
+  filtros = complementar_filtros_cid(
+    list(sexo = sexo, raca = raca, cid = cid, faixa_legada_informada = faixa,
+         idade_min = limites_idade$idade_min, idade_max = limites_idade$idade_max), consulta_cid),
   inicio = Sys.time(), python = NULL, import_mds = identificar_import_mds(raiz_projeto)
 )
 
@@ -138,7 +142,8 @@ if (grepl("^SIM", sistema)) {
     faixa = faixa,
     cid = cid,
     idade_min = idade_min,
-    idade_max = idade_max
+    idade_max = idade_max,
+    consulta_cid = consulta_cid
   )
 } else {
   stop("Sistema não suportado (use SIM-DO).")
