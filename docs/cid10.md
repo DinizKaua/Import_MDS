@@ -17,10 +17,14 @@ Os argumentos de coleta do pacote permanecem iguais: CID é um filtro local.
 - ZIP original, sem alterações: `referencias/cid10/icd102019en.xml.zip`.
 - SHA-256 do ZIP: `344c571aa9aed3b9ad1c80261b7828c45cfb5fc0b1a5da64aecef354dff5b3d9`.
 - Índice local: `referencias/cid10/oms_2019_codigos.json`, contendo todas as
-  2.090 categorias de três caracteres e 9.153 subcategorias explicitamente
-  declaradas como classes `category` no arquivo. Inclui procedência e SHA-256 do
-  XML original. Não contém títulos, descrições clínicas ou uma lista montada
-  manualmente a partir dos exemplos dos testes.
+  2.090 categorias de três caracteres, 9.153 subcategorias explicitamente
+  declaradas como classes `category` e 50 subcategorias derivadas de `S04E10_4`,
+  totalizando **9.203 subcategorias**. Inclui procedência e SHA-256 do XML original.
+  Não contém títulos ou descrições clínicas.
+- Formato do índice: `versao_indice: "1.0.0"`, preservado para os consumidores
+  existentes. Revisão do algoritmo: `referencia.geracao.versao: "1.1.0"`.
+  O índice anterior não possuía `geracao` e omitia as subdivisões de diabetes.
+  Esta revisão é do Import_MDS; **não é uma nova edição da classificação OMS**.
 
 O nome do download contém 2019, mas a versão interna inclui a expansão COVID.
 As datas e o identificador acima são registrados como declarados pela fonte;
@@ -49,7 +53,40 @@ O gerador exige o SHA-256 do ZIP fixado, rejeita duplicatas, formatos desconheci
 e subcategorias sem categoria correspondente. Não expande classes por sequências
 numéricas nem por suposições sobre códigos intermediários. Uma atualização da
 referência exige nova revisão, regeneração, testes e identificação nos metadados;
-o arquivo remoto não é consultado automaticamente durante uma execução.
+o arquivo remoto não é consultado automaticamente durante uma execução. A mesma
+fonte e o mesmo `--obtido-em` produzem bytes idênticos. A data de obtenção continua
+identificando o download original do ZIP, não a data de regeneração do índice.
+
+## Correção direcionada das subdivisões de diabetes
+
+O ClaML pode declarar subdivisões compartilhadas com `Modifier`, `ModifierClass`
+e vínculos `ModifiedBy`, sem enumerar cada código completo como uma `Class`.
+O gerador anterior lia somente as classes explícitas. Como consequência,
+`E10-E14` rejeitava subcategorias válidas como `E109`, `E119`, `E142`, `E148`
+e `E149`, tanto compactas quanto pontuadas.
+
+A função `expandir_diabetes(raiz)` trata exclusivamente o modificador `S04E10_4`.
+Ela confirma sua definição, as dez classes de sufixos `.0` a `.9` e os cinco
+vínculos diretos das categorias E10, E11, E12, E13 e E14 ao bloco E10–E14.
+Os 50 códigos resultam dessas associações lidas do XML. Não são uma lista manual.
+`all` omitido ou `true` admite os dez sufixos nessa estrutura. Qualquer restrição
+`ValidModifierClass`, exclusão do modificador, posição, variante, categoria extra,
+vínculo adicional ou estrutura técnica diferente interrompe a geração para revisão;
+nenhuma dessas estruturas restritivas existe no caso aprovado da fonte fixada.
+
+A união com as classes explícitas preserva todos os códigos anteriores e impede
+duplicação, inclusive se um código também estiver enumerado explicitamente. Os
+metadados `referencia.geracao` registram o modificador, as categorias, os códigos
+derivados, as quantidades explícitas/derivadas/adicionadas e a ausência de expansão
+dos outros modificadores. Essa procedência segue para os relatórios novos de
+intervalos pelo campo de referência já existente, sem alterar o esquema 1.1.0.
+
+A extração MA, 1996–2024, E10-E14, idade mínima 18, realizada com o índice anterior,
+recebeu 805.956 registros, preservou 720.155 após idade e terminou com zero. Seu
+resultado está comprometido pelo defeito conhecido e **não demonstra ausência de
+óbitos por diabetes**. Seus arquivos devem permanecer intactos para diagnóstico.
+Esta correção não os migra nem repete a coleta. Uma futura execução requer
+planejamento próprio e preservação do resultado anterior.
 
 ## Interpretação e seleção
 
@@ -127,11 +164,16 @@ podem não existir nela. A referência contém também classes para uso emergenc
 sua presença não comprova vigência ou autorização de uso no Brasil naquele ano.
 Não há mapeamento automático entre versões.
 
-Somente subcategorias explícitas do ClaML são aceitas. Não se inventam extensões
-por modificadores ou caracteres adicionais; códigos com mais de quatro caracteres
-não são reconhecidos pelo ramo de intervalo desta versão. Esse limite não é
-imposto ao prefixo legado. A referência não comprova qualidade epidemiológica
-nem cobertura dos arquivos DATASUS, que permanece `nao_verificada`.
+São aceitas as subcategorias explícitas e as 50 derivadas do caso autorizado
+`S04E10_4`. **Os demais modificadores continuam sem expansão.** Alguns são
+qualificadores separados, como local de ocorrência e atividade; outros contêm
+extensões suplementares e restrições que exigem análise própria. Este gerador
+não é um interpretador universal de ClaML. Resultados vazios de outros intervalos
+exigem cautela: a ausência de um código no índice não prova sua inexistência na
+classificação completa. Códigos com mais de quatro caracteres não são reconhecidos
+pelo ramo de intervalo desta versão. Esse limite não é imposto ao prefixo legado.
+A referência não comprova qualidade epidemiológica nem cobertura dos arquivos
+DATASUS, que permanece `nao_verificada`.
 
 ## Testes
 
@@ -141,3 +183,10 @@ contagens preservados, nomes e três artefatos, além de rejeição antes da res
 e da coleta simulada. `tests/test_cli_intervalo_cid.py` cobre perguntas, argumentos,
 referência indisponível e reprodução do índice a partir do ZIP local. Todos os
 testes funcionam sem internet e sem modificar o pacote microdatasus.
+
+`tests/test_gerar_referencia_cid10.py` verifica a expansão direcionada na fonte
+original e em fixtures em memória, a recusa de estruturas inesperadas, preservação
+dos códigos explícitos, não expansão de outros modificadores, ZIP intacto e
+regeneração determinística byte a byte. A suíte R também reproduz oito adultos
+com subcategorias de diabetes: o catálogo anterior selecionava zero e o corrigido
+seleciona os oito, preservando filtros, IDs, duplicatas e os três artefatos.

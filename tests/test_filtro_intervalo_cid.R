@@ -13,7 +13,8 @@ local({
   }
   oficial <- m$carregar_referencia_cid()
   erro(m$carregar_referencia_cid("https://exemplo.invalid/referencia.json"), "arquivo local")
-  stopifnot(length(oficial$categorias) == 2090L, length(oficial$subcategorias) == 9153L,
+  # 9.153 explícitas preservadas + 50 derivadas de S04E10_4, revisão 1.1.0.
+  stopifnot(length(oficial$categorias) == 2090L, length(oficial$subcategorias) == 9203L,
     !"I14" %in% oficial$categorias,
     identical(m$interpretar_consulta_cid("I10-I15")$categorias, c("I10", "I11", "I12", "I13", "I15")),
     m$interpretar_consulta_cid("A00-A04")$modalidade == "intervalo",
@@ -154,5 +155,88 @@ local({
   j0 <- m$verificar_resultado_auditado(prefixo$e$destinos$relatorio)
   stopifnot(is.null(j0$metadados$consulta$filtros$cid_intervalo), j0$metadados$consulta$filtros$cid == "I21")
   cat("OK: consulta inválida antes da reserva/coleta, nomes, três artefatos, JSON 1.1 opcional e checksums; sem internet\n")
+
+  # Expansão direcionada: as outras expectativas acima continuam inalteradas.
+  derivadas <- as.vector(outer(paste0("E", 10:14), paste0(".", 0:9), paste0))
+  diabetes <- m$interpretar_consulta_cid("E10-E14")
+  categorias_diabetes <- paste0("E", 10:14)
+  stopifnot(identical(diabetes$categorias, categorias_diabetes),
+    all(derivadas %in% oficial$subcategorias),
+    all(m$selecionar_cid(derivadas, diabetes)),
+    all(m$selecionar_cid(gsub(".", "", derivadas, fixed = TRUE), diabetes)),
+    all(m$selecionar_cid(categorias_diabetes, diabetes)),
+    oficial$referencia$geracao$versao == "1.1.0",
+    oficial$referencia$geracao$quantidade_subcategorias_explicitas == 9153L,
+    oficial$referencia$geracao$quantidade_subcategorias_adicionadas == 50L,
+    setequal(oficial$referencia$geracao$codigos_derivados, derivadas))
+  stopifnot(!any(m$selecionar_cid(c("E09", "E090", "E15", "E150", "I14", "E1090", "E10..9",
+    "E10.", "E10.99", "E10x", " E109", "E109 ", "e109", "", NA_character_), diabetes)))
+  anterior <- oficial
+  anterior$subcategorias <- anterior$subcategorias[!anterior$subcategorias %in% derivadas]
+  anterior$referencia$quantidade_subcategorias <- length(anterior$subcategorias)
+  stopifnot(length(anterior$subcategorias) == 9153L)
+  consulta_anterior <- m$interpretar_consulta_cid("E10-E14", anterior)
+  # Demonstrar que o único efeito nos intervalos fora de E10–E14 é a nova
+  # procedência do catálogo: conjuntos de códigos continuam idênticos.
+  for (intervalo in c("I10-I15", "I21-I22", "C18-C20", "A00-A04", "J45-J46")) {
+    stopifnot(identical(m$interpretar_consulta_cid(intervalo, anterior)$codigos,
+      m$interpretar_consulta_cid(intervalo, oficial)$codigos))
+  }
+  oito <- bruto[rep(2L, 8L), ]
+  oito$CAUSABAS <- c("E109", "E10.9", "E119", "E11.9", "E120", "E139", "E149", "E14.9")
+  oito$CODESTAB <- sprintf("%07d", 1:8)
+  antes_oito <- serialize(oito, NULL)
+  antigo <- m$preparar_exportacao_sim(oito, cid = "E10-E14", consulta_cid = consulta_anterior, idade_min = 18)
+  corrigido <- m$preparar_exportacao_sim(oito, cid = "E10-E14", idade_min = 18)
+  stopifnot(nrow(antigo) == 0L, attr(antigo, "contagens_etarias")$apos_filtro_etario == 8L,
+    nrow(corrigido) == 8L, identical(corrigido$DOENCA, oito$CAUSABAS),
+    identical(names(corrigido), m$colunas_principal_auditoria()),
+    identical(attr(corrigido, "auditoria_naturalidade")$registro_id, as.character(1:8)),
+    identical(serialize(oito, NULL), antes_oito))
+  estendido <- rbind(oito, oito[rep(1L, 5L), ])
+  estendido$IDADE[9L] <- "417"; estendido$SEXO[10L] <- "2"; estendido$RACACOR[11L] <- "4"
+  estendido$CAUSABAS[12L] <- "I219"
+  estendido$DTOBITO[c(1L, 13L)] <- "31022020"
+  antes_estendido <- serialize(estendido, NULL)
+  combinado <- m$preparar_exportacao_sim(estendido, cid = "E10-E14", idade_min = 18, idade_max = 18,
+    sexo = "Masculino", raca = "Branca")
+  ids_esperados <- c(1:8, 13L)
+  stopifnot(identical(combinado$DOENCA, estendido$CAUSABAS[ids_esperados]),
+    identical(combinado$ESTABELECIMENTO, estendido$CODESTAB[ids_esperados]),
+    identical(attr(combinado, "auditoria_naturalidade")$registro_id, as.character(ids_esperados)),
+    identical(attr(combinado, "auditoria_naturalidade")$posicao_csv, 1:9),
+    sum(is.na(combinado$DATA)) == 2L, ncol(combinado) == 14L,
+    attr(combinado, "contagens_etarias")$entrada == 13L,
+    attr(combinado, "contagens_etarias")$apos_filtro_etario == 12L,
+    attr(combinado, "contagens_etarias")$apos_demais_filtros == 9L,
+    identical(serialize(estendido, NULL), antes_estendido))
+  contagens_diabetes <- list(etarias = attr(combinado, "contagens_etarias"),
+    datas = attr(combinado, "contagens_datas"), naturalidade = attr(combinado, "contagens_naturalidade"))
+  m$validar_contagens_auditoria(contagens_diabetes, 9L)
+  dt_diabetes <- data.table::as.data.table(estendido); antes_dt_diabetes <- serialize(dt_diabetes, NULL)
+  stopifnot(identical(m$preparar_exportacao_sim(dt_diabetes, cid = "E10-E14", idade_min = 18, idade_max = 18,
+    sexo = "Masculino", raca = "Branca"), combinado),
+    identical(serialize(dt_diabetes, NULL), antes_dt_diabetes))
+  info <- attr(combinado, "auditoria_naturalidade")
+  auxiliar <- data.frame(posicao_registro = info$posicao_csv, codigo_original = info$naturalidade_codigo_original,
+    situacao = info$naturalidade_situacao, motivo = info$naturalidade_motivo, descricao = info$naturalidade_descricao)
+  auxiliar <- auxiliar[auxiliar$situacao != "inequivoca" | auxiliar$motivo != "correspondencia_unica", , drop = FALSE]
+  nome_diabetes <- m$construir_nome_csv("SIM-DO", "MA", 2014, 2014, cid = "E10-E14", idade_min = 18)
+  estrutura <- m$preparar_diretorio_extracao(temp, nome_diabetes)
+  destinos_diabetes <- m$destinos_resultado_auditado(estrutura$principal, estrutura$logs)
+  meta <- m$preparar_metadados_auditoria("SIM-DO", uf = "MA", filtros = m$complementar_filtros_cid(
+    list(cid = "E10-E14", idade_min = 18, idade_max = 18, sexo = "Masculino", raca = "Branca"), diabetes))
+  m$publicar_resultado_auditado(combinado, auxiliar, estrutura$principal, meta,
+    contagens_diabetes, diretorio_logs = estrutura$logs)
+  relatorio_diabetes <- m$verificar_resultado_auditado(destinos_diabetes$relatorio)
+  stopifnot(relatorio_diabetes$versao_esquema == "1.1.0", relatorio_diabetes$arquivos$principal$registros == 9L,
+    length(relatorio_diabetes$arquivos$principal$colunas) == 14L,
+    relatorio_diabetes$metadados$consulta$filtros$cid_intervalo$referencia$geracao$versao == "1.1.0",
+    relatorio_diabetes$arquivos$principal$sha256 == m$sha256_arquivo(destinos_diabetes$principal))
+  csv_esperado <- file.path(temp, "diabetes_serializacao_legada.csv")
+  utils::write.csv(combinado, csv_esperado, row.names = FALSE)
+  stopifnot(identical(readBin(csv_esperado, "raw", n = file.info(csv_esperado)$size),
+    readBin(destinos_diabetes$principal, "raw", n = file.info(destinos_diabetes$principal)$size)))
+  cat("OK: 50 subcategorias de diabetes; cenário antigo 8→0 corrigido para 8→8; filtros, duplicatas, IDs, datas, CSV e JSON preservados\n")
   cat("PASSOU: intervalos gerais por referência atribuída e prefixos legados, sem downloads ou alteração de microdados reais.\n")
 })
