@@ -63,6 +63,51 @@ construir_nome_csv <- function(sistema, uf, ano_inicio, ano_fim,
   paste0(nome, ".csv")
 }
 
+.caminho_ocupado_exportacao <- function(caminho) {
+  link <- Sys.readlink(caminho)
+  file.exists(caminho) || (!is.na(link) && nzchar(link))
+}
+
+.diretorio_real_exportacao <- function(caminho) {
+  link <- Sys.readlink(caminho)
+  if (!dir.exists(caminho) || (!is.na(link) && nzchar(link))) {
+    stop("Diretório de saída indisponível ou link simbólico não permitido: ", caminho)
+  }
+  normalizePath(caminho, mustWork = TRUE)
+}
+
+# Reserva exclusiva ANTES da coleta. mkdir não reutiliza a pasta de outra
+# execução, mesmo se ela surgir entre a verificação e a criação. Em falhas,
+# pastas incompletas são mantidas para inspeção; nunca removemos diretórios.
+preparar_diretorio_extracao <- function(raiz_projeto, nome_csv) {
+  raiz <- .diretorio_real_exportacao(raiz_projeto)
+  if (!is.character(nome_csv) || length(nome_csv) != 1L || is.na(nome_csv) ||
+      !nzchar(nome_csv) || !endsWith(nome_csv, ".csv") || nchar(nome_csv) <= 4L ||
+      basename(nome_csv) != nome_csv || grepl("[/\\\\]", nome_csv) ||
+      substr(nome_csv, 1L, nchar(nome_csv) - 4L) %in% c(".", "..")) {
+    stop("Nome CSV inválido para o diretório da extração.")
+  }
+  dados <- file.path(raiz, "Dados")
+  if (!.caminho_ocupado_exportacao(dados)) {
+    # O pai compartilhado pode ser criado por outra execução concorrente.
+    criado <- dir.create(dados, showWarnings = FALSE)
+    if (!criado && !dir.exists(dados)) stop("Não foi possível criar Dados/.")
+  }
+  dados <- .diretorio_real_exportacao(dados)
+  diretorio <- file.path(dados, substr(nome_csv, 1L, nchar(nome_csv) - 4L))
+  if (.caminho_ocupado_exportacao(diretorio)) {
+    stop("Diretório da extração já existe; não será reutilizado: ", diretorio)
+  }
+  if (!dir.create(diretorio, showWarnings = FALSE, mode = "0700")) {
+    stop("Não foi possível reservar exclusivamente o diretório da extração: ", diretorio)
+  }
+  logs <- file.path(diretorio, "logs")
+  if (!dir.create(logs, showWarnings = FALSE, mode = "0700")) {
+    stop("Não foi possível criar logs/ da extração: ", logs)
+  }
+  list(diretorio = diretorio, logs = logs, principal = file.path(diretorio, nome_csv))
+}
+
 verificar_destino_csv <- function(destino) {
   if (!is.character(destino) || length(destino) != 1L || is.na(destino) || !nzchar(destino)) {
     stop("O destino CSV deve ser um caminho não vazio.")

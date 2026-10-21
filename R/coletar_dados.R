@@ -4,6 +4,35 @@ suppressPackageStartupMessages({
   library(lubridate)
 })
 
+# Resolve o script real em Rscript ou source/sys.source, sem fallback em getwd().
+localizar_raiz_projeto <- function() {
+  candidatos <- character()
+  for (quadro in sys.frames()) {
+    for (campo in c("ofile", "file")) {
+      valor <- quadro[[campo]]
+      if (is.character(valor) && length(valor) == 1L && !is.na(valor)) {
+        candidatos <- c(candidatos, valor)
+      }
+    }
+  }
+  linha <- commandArgs(trailingOnly = FALSE)
+  # Rscript representa espaços de --file como ~+~ em commandArgs(FALSE).
+  # Decodifica somente esse argumento interno, nunca nomes de saídas/filtros.
+  arquivo_cli <- sub("^--file=", "", linha[startsWith(linha, "--file=")])
+  candidatos <- c(rev(candidatos), gsub("~+~", " ", arquivo_cli, fixed = TRUE))
+  for (candidato in candidatos) {
+    if (basename(candidato) != "coletar_dados.R" || !file.exists(candidato)) next
+    script <- normalizePath(candidato, mustWork = TRUE)
+    raiz <- dirname(dirname(script))
+    if (basename(dirname(script)) == "R" &&
+        all(file.exists(file.path(raiz, c("R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R"))))) {
+      return(raiz)
+    }
+  }
+  stop("Não foi possível localizar a raiz a partir do script R/coletar_dados.R.")
+}
+raiz_projeto <- localizar_raiz_projeto()
+
 # -------------------------------
 # Parse de argumentos (--param valor)
 # -------------------------------
@@ -42,7 +71,7 @@ idade_min <- args$idade_min
 idade_max <- args$idade_max
 
 # Carrega apenas funções; valida os limites antes de qualquer chamada de coleta.
-source(file.path("R", "sistemas", "sim.R"), local = TRUE)
+source(file.path(raiz_projeto, "R", "sistemas", "sim.R"), local = TRUE)
 limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
 
 # -------------------------------
@@ -50,8 +79,8 @@ limites_idade <- resolver_limites_idade_sim(idade_min, idade_max, faixa)
 # -------------------------------
 uf_param <- if (uf == "ALL") "all" else uf
 
-source(file.path("R", "comum", "exportacao.R"), local = TRUE)
-source(file.path("R", "comum", "auditoria.R"), local = TRUE)
+source(file.path(raiz_projeto, "R", "comum", "exportacao.R"), local = TRUE)
+source(file.path(raiz_projeto, "R", "comum", "auditoria.R"), local = TRUE)
 .exigir_jsonlite()
 if (!nzchar(Sys.which("sha256sum"))) stop("Utilitário sha256sum indisponível.")
 nome_arquivo <- construir_nome_csv(
@@ -61,7 +90,8 @@ nome_arquivo <- construir_nome_csv(
   idade_max = if (is.null(idade_max)) NULL else limites_idade$idade_max,
   mes_inicio = mes_inicio, mes_fim = mes_fim
 )
-destinos <- destinos_resultado_auditado(nome_arquivo)
+estrutura_saida <- preparar_diretorio_extracao(raiz_projeto, nome_arquivo)
+destinos <- destinos_resultado_auditado(estrutura_saida$principal, estrutura_saida$logs)
 caminho_arquivo <- destinos$principal
 metadados <- preparar_metadados_auditoria(
   sistema = sistema, uf = uf,
@@ -72,7 +102,7 @@ metadados <- preparar_metadados_auditoria(
                     uf = uf_param, information_system = sistema, stop_on_error = TRUE),
   filtros = list(sexo = sexo, raca = raca, cid = cid, faixa_legada_informada = faixa,
                  idade_min = limites_idade$idade_min, idade_max = limites_idade$idade_max),
-  inicio = Sys.time(), python = NULL, import_mds = identificar_import_mds(".")
+  inicio = Sys.time(), python = NULL, import_mds = identificar_import_mds(raiz_projeto)
 )
 
 cat("Parâmetros:\n")
@@ -149,10 +179,11 @@ excecoes <- auditoria_saida$situacao != "inequivoca" |
   auditoria_saida$motivo != "correspondencia_unica"
 auditoria_saida <- auditoria_saida[excecoes, , drop = FALSE]
 relatorio <- publicar_resultado_auditado(
-  dados_final, auditoria_saida, caminho_arquivo, metadados, contagens
+  dados_final, auditoria_saida, caminho_arquivo, metadados, contagens,
+  diretorio_logs = estrutura_saida$logs
 )
 verificar_resultado_auditado(destinos$relatorio, id_execucao = metadados$id_execucao)
 
-cat("Arquivo gerado:", nome_arquivo, "\n")
-cat("Auditoria de naturalidade:", basename(destinos$naturalidade), "\n")
-cat("Relatório de conclusão:", basename(destinos$relatorio), "\n")
+cat("Arquivo gerado:", destinos$principal, "\n")
+cat("Auditoria de naturalidade:", destinos$naturalidade, "\n")
+cat("Relatório de conclusão:", destinos$relatorio, "\n")

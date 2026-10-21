@@ -80,10 +80,17 @@ preparar_metadados_auditoria <- function(sistema, uf = NULL, periodo = NULL,
                       dplyr = versao("dplyr"), data_table = versao("data.table"), Import_MDS = import_mds))
 }
 
-destinos_resultado_auditado <- function(destino_csv) {
+destinos_resultado_auditado <- function(destino_csv, diretorio_logs = NULL) {
   principal <- verificar_destino_csv(destino_csv)
   .exigir_auditoria(endsWith(principal, ".csv"), "Destino principal deve terminar em .csv.")
   base <- substr(principal, 1L, nchar(principal) - 4L)
+  if (!is.null(diretorio_logs)) {
+    logs <- .diretorio_real_exportacao(diretorio_logs)
+    extracao <- .diretorio_real_exportacao(dirname(principal))
+    .exigir_auditoria(identical(logs, file.path(extracao, "logs")) &&
+      identical(basename(extracao), basename(base)), "Estrutura da extração/logs inválida.")
+    base <- file.path(logs, basename(base))
+  }
   caminhos <- list(principal = principal, naturalidade = paste0(base, "_auditoria_naturalidade.csv"),
                    relatorio = paste0(base, "_relatorio.json"))
   for (caminho in caminhos) verificar_destino_csv(caminho)
@@ -241,8 +248,9 @@ validar_contagens_auditoria <- function(contagens, total_final) {
   invisible(TRUE)
 }
 
-.metadados_arquivo_auditoria <- function(temporario, destino, registros, colunas) {
-  list(nome = basename(destino), registros = registros, bytes = unname(file.info(temporario)$size),
+.metadados_arquivo_auditoria <- function(temporario, destino, registros, colunas,
+                                        nome_relativo = basename(destino)) {
+  list(nome = nome_relativo, registros = registros, bytes = unname(file.info(temporario)$size),
        sha256 = sha256_arquivo(temporario), colunas = as.list(colunas))
 }
 
@@ -264,7 +272,9 @@ validar_contagens_auditoria <- function(contagens, total_final) {
 }
 
 .validar_estrutura_relatorio <- function(r, marcador_final = FALSE) {
-  .exigir_auditoria(is.list(r) && identical(r$versao_esquema, "1.0.0"), "Versão/estrutura do relatório não suportada.")
+  .exigir_auditoria(is.list(r) && .texto_auditoria(r$versao_esquema) &&
+    r$versao_esquema %in% c("1.0.0", "1.1.0"), "Versão/estrutura do relatório não suportada.")
+  organizado <- identical(r$versao_esquema, "1.1.0")
   .validar_id_execucao(r$id_execucao)
   .exigir_auditoria(is.list(r$metadados) &&
     all(c("id_execucao", "consulta", "inicio_execucao_utc", "versoes") %in% names(r$metadados)) &&
@@ -286,16 +296,27 @@ validar_contagens_auditoria <- function(contagens, total_final) {
     identical(r$verificacoes$posicoes_ordinais, TRUE), "Relatório inconsistente ou incompleto.")
   .exigir_auditoria(identical(names(r$arquivos), c("principal", "naturalidade")), "Conjunto de arquivos inválido.")
   nomes <- character()
-  for (a in r$arquivos) {
+  for (tipo in names(r$arquivos)) {
+    a <- r$arquivos[[tipo]]
+    nome <- if (organizado && tipo == "principal" && .texto_auditoria(a$nome) &&
+                startsWith(a$nome, "../")) substring(a$nome, 4L) else a$nome
     .exigir_auditoria(is.list(a) && .texto_auditoria(a$nome) &&
-      identical(basename(a$nome), a$nome) && !a$nome %in% c(".", "..") &&
-      !grepl("[/\\\\]", a$nome) && endsWith(a$nome, ".csv") &&
+      .texto_auditoria(nome) && identical(basename(nome), nome) && !nome %in% c(".", "..") &&
+      !grepl("[/\\\\]", nome) && endsWith(nome, ".csv") &&
+      (!organizado || tipo != "principal" || identical(a$nome, paste0("../", nome))) &&
       .inteiro_auditoria(a$registros) && .inteiro_auditoria(a$bytes) &&
       .texto_auditoria(a$sha256) && grepl("\\A[a-f0-9]{64}\\z", a$sha256, perl = TRUE) &&
       is.list(a$colunas) && length(a$colunas) > 0L &&
       all(vapply(a$colunas, .texto_auditoria, logical(1))) && !anyDuplicated(unlist(a$colunas)),
       "Metadados de arquivo inválidos.")
     nomes <- c(nomes, a$nome)
+  }
+  if (organizado) {
+    base <- sub("[.]csv$", "", basename(r$arquivos$principal$nome))
+    .exigir_auditoria(identical(r$publicacao$base_caminhos, "diretorio_relatorio") &&
+      identical(r$publicacao$organizacao, "extracao_logs") &&
+      identical(r$arquivos$naturalidade$nome, paste0(base, "_auditoria_naturalidade.csv")),
+      "Referências da estrutura extração/logs inconsistentes.")
   }
   .exigir_auditoria(!anyDuplicated(nomes) &&
     identical(unlist(r$arquivos$naturalidade$colunas, use.names = FALSE), colunas_naturalidade_auditoria()),
@@ -308,6 +329,34 @@ validar_contagens_auditoria <- function(contagens, total_final) {
   invisible(TRUE)
 }
 
+.resolver_artefatos_relatorio <- function(caminho_json, relatorio) {
+  # O nome é validado antes da resolução. Em 1.1 apenas o principal pode subir
+  # EXATAMENTE um nível; todos os outros componentes são nomes simples.
+  pasta <- .diretorio_real_exportacao(dirname(caminho_json))
+  .exigir_auditoria(!nzchar(Sys.readlink(caminho_json)), "Link simbólico de relatório não permitido.")
+  pais <- list(principal = pasta, naturalidade = pasta)
+  if (identical(relatorio$versao_esquema, "1.1.0")) {
+    # Verifica também a pasta informada ANTES da canonicalização de logs/,
+    # para não aceitar uma pasta de extração que seja um link para fora.
+    extracao <- .diretorio_real_exportacao(dirname(dirname(caminho_json)))
+    base <- sub("[.]csv$", "", basename(relatorio$arquivos$principal$nome))
+    .exigir_auditoria(identical(basename(pasta), "logs") &&
+      identical(basename(extracao), base) &&
+      identical(basename(caminho_json), paste0(base, "_relatorio.json")),
+      "Relatório fora da estrutura extração/logs autorizada.")
+    pais$principal <- extracao
+  }
+  caminhos <- list()
+  for (tipo in names(pais)) {
+    p <- file.path(pais[[tipo]], basename(relatorio$arquivos[[tipo]]$nome))
+    .exigir_auditoria(file.exists(p) && !dir.exists(p) && !nzchar(Sys.readlink(p)) &&
+      identical(normalizePath(p, mustWork = TRUE), p),
+      "Artefato referenciado indisponível ou fora do diretório autorizado.")
+    caminhos[[tipo]] <- p
+  }
+  caminhos
+}
+
 verificar_resultado_auditado <- function(caminho_json, id_execucao = NULL) {
   .exigir_jsonlite()
   .exigir_auditoria(.texto_auditoria(caminho_json) && file.exists(caminho_json) && !dir.exists(caminho_json),
@@ -315,17 +364,19 @@ verificar_resultado_auditado <- function(caminho_json, id_execucao = NULL) {
   r <- jsonlite::fromJSON(caminho_json, simplifyVector = FALSE)
   .validar_estrutura_relatorio(r, marcador_final = TRUE)
   if (!is.null(id_execucao)) .exigir_auditoria(identical(id_execucao, r$id_execucao), "Identificador de execução divergente.")
-  for (a in r$arquivos) .conferir_arquivo_auditoria(file.path(dirname(caminho_json), a$nome), a)
-  ler_auditoria_naturalidade(file.path(dirname(caminho_json), r$arquivos$naturalidade$nome),
+  caminhos <- .resolver_artefatos_relatorio(caminho_json, r)
+  for (tipo in names(r$arquivos)) .conferir_arquivo_auditoria(caminhos[[tipo]], r$arquivos[[tipo]])
+  ler_auditoria_naturalidade(caminhos$naturalidade,
                             r$arquivos$principal$registros)
   invisible(r)
 }
 
 publicar_resultado_auditado <- function(dados, auditoria, destino_csv, metadados,
                                         contagens = list(),
-                                        colunas_principal = colunas_principal_auditoria()) {
+                                        colunas_principal = colunas_principal_auditoria(),
+                                        diretorio_logs = NULL) {
   .exigir_jsonlite()
-  destinos <- destinos_resultado_auditado(destino_csv)
+  destinos <- destinos_resultado_auditado(destino_csv, diretorio_logs)
   .exigir_auditoria(is.data.frame(dados) && identical(names(dados), colunas_principal) &&
     is.character(colunas_principal) && length(colunas_principal) > 0L &&
     !anyNA(colunas_principal) && !anyDuplicated(colunas_principal), "Esquema principal inválido.")
@@ -350,7 +401,9 @@ publicar_resultado_auditado <- function(dados, auditoria, destino_csv, metadados
     .exigir_auditoria(isTRUE(all.equal(lido[[nome]], auditoria[[nome]], check.attributes = FALSE)),
                       "Conteúdo do auxiliar diverge após a serialização.")
   }
-  arquivos <- list(principal = .metadados_arquivo_auditoria(principal, destinos$principal, nrow(dados), colunas_principal),
+  nome_principal <- if (is.null(diretorio_logs)) basename(destinos$principal) else paste0("../", basename(destinos$principal))
+  arquivos <- list(principal = .metadados_arquivo_auditoria(principal, destinos$principal, nrow(dados), colunas_principal,
+                                                         nome_relativo = nome_principal),
     naturalidade = .metadados_arquivo_auditoria(auxiliar, destinos$naturalidade, nrow(auditoria), colunas_naturalidade_auditoria()))
   limitacoes <- c("Cobertura dos arquivos DATASUS não verificada.",
     "Publicação individual; não há atomicidade entre os três arquivos nem garantia contra perda de energia.",
@@ -370,13 +423,18 @@ publicar_resultado_auditado <- function(dados, auditoria, destino_csv, metadados
       contagens[etapa] <- list(NULL)
     }
   }
-  relatorio <- list(versao_esquema = "1.0.0", id_execucao = metadados$id_execucao, metadados = metadados,
+  relatorio <- list(versao_esquema = if (is.null(diretorio_logs)) "1.0.0" else "1.1.0",
+    id_execucao = metadados$id_execucao, metadados = metadados,
     horarios = list(inicio_preparacao_utc = inicio_preparacao),
     contagens = contagens, arquivos = arquivos,
     verificacoes = list(arquivos = TRUE, contagens = TRUE, posicoes_ordinais = TRUE),
     cobertura_datasus = "nao_verificada",
     publicacao = list(situacao = "concluida", protocolo = "csv_principal_csv_auxiliar_json_final"),
     informacoes_indisponiveis = as.list(indisponiveis), limitacoes = as.list(limitacoes))
+  if (!is.null(diretorio_logs)) {
+    relatorio$publicacao$base_caminhos <- "diretorio_relatorio"
+    relatorio$publicacao$organizacao <- "extracao_logs"
+  }
   .validar_estrutura_relatorio(relatorio)
   # Prepara e valida o JSON antes de qualquer publicação; a versão final recebe
   # o horário da conferência e é reescrita em OUTRO temporário exclusivo.

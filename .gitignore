@@ -1,2 +1,5 @@
 *.csv
 *.csv#
+/Dados/*
+!/Dados/.gitkeep
+/dados_*_relatorio.json

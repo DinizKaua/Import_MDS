@@ -19,7 +19,7 @@ local({
   on.exit(unlink(temporario, recursive = TRUE), add = TRUE)
   arquivos <- c("R/coletar_dados.R", "R/sistemas/sim.R", "R/comum/exportacao.R", "R/comum/auditoria.R")
   projeto <- function() {
-    d <- tempfile("projeto-", tmpdir = temporario)
+    d <- tempfile("projeto com espaços-", tmpdir = temporario)
     for (p in arquivos) {
       dir.create(dirname(file.path(d, p)), recursive = TRUE, showWarnings = FALSE)
       stopifnot(file.copy(file.path(raiz, p), file.path(d, p)))
@@ -47,19 +47,28 @@ local({
   rownames(entrada) <- NULL
   argumentos <- c("--system", "SIM-DO", "--uf", "MA", "--year_start", "2020", "--year_end", "2024",
     "--month_start", "2", "--month_end", "11", "--cid", "I21")
-  executar <- function(args = argumentos, dados = entrada, falha = "", ocupar = NULL, tabela_naturalidade = NULL) {
+  executar <- function(args = argumentos, dados = entrada, falha = "", ocupar = NULL,
+                       tabela_naturalidade = NULL, fora_raiz = FALSE) {
     d <- projeto()
     anterior <- getwd()
     on.exit(setwd(anterior), add = TRUE)
     setwd(d)
     nome <- modulo$construir_nome_csv("SIM-DO", "MA", 2020, 2024, cid = "I21")
-    destinos <- modulo$destinos_resultado_auditado(nome)
-    if (!is.null(ocupar)) writeLines("arquivo existente", destinos[[ocupar]])
+    pasta <- file.path(d, "Dados", sub("[.]csv$", "", nome))
+    destinos <- list(principal = file.path(pasta, nome),
+      naturalidade = file.path(pasta, "logs", sub("[.]csv$", "_auditoria_naturalidade.csv", nome)),
+      relatorio = file.path(pasta, "logs", sub("[.]csv$", "_relatorio.json", nome)))
+    if (!is.null(ocupar)) {
+      dir.create(file.path(pasta, "logs"), recursive = TRUE)
+      writeLines("arquivo existente", destinos[[ocupar]])
+    }
     anteriores <- c(file.path(d, "historico.csv"), file.path(d, ".import-mds-csv-alheio.tmp"))
     hashes <- vapply(anteriores, modulo$sha256_arquivo, character(1))
     hash_ocupado <- if (!is.null(ocupar)) modulo$sha256_arquivo(destinos[[ocupar]]) else NULL
     e <- new.env(parent = globalenv())
-    e$commandArgs <- function(trailingOnly = FALSE) args
+    e$commandArgs <- function(trailingOnly = FALSE) {
+      if (trailingOnly) args else c("Rscript", paste0("--file=", file.path(d, "R/coletar_dados.R")), args)
+    }
     e$chamadas <- 0L
     e$fetch_datasus <- function(...) {
       e$chamadas <- e$chamadas + 1L
@@ -68,8 +77,15 @@ local({
       dados
     }
     e$source <- function(file, local = FALSE) {
-      stopifnot(isTRUE(local), file %in% arquivos)
+      stopifnot(isTRUE(local), file %in% file.path(d, arquivos))
       sys.source(file, e)
+      if (basename(file) == "exportacao.R" && falha %in% c("criar_dados", "criar_extracao", "criar_logs")) {
+        e$dir.create <- function(path, ...) {
+          bloquear <- switch(falha, criar_dados = basename(path) == "Dados",
+            criar_logs = basename(path) == "logs", criar_extracao = basename(path) == sub("[.]csv$", "", nome))
+          if (bloquear) FALSE else base::dir.create(path, ...)
+        }
+      }
       if (basename(file) == "sim.R" && !is.null(tabela_naturalidade)) {
         converter <- e$converter_naturalidade_sim
         e$converter_naturalidade_sim <- function(codigos) converter(codigos, tabela = tabela_naturalidade)
@@ -105,14 +121,23 @@ local({
         }
       }
     }
+    pasta_trabalho <- d
+    if (fora_raiz) {
+      pasta_trabalho <- tempfile("outra pasta-", tmpdir = temporario)
+      stopifnot(dir.create(pasta_trabalho))
+      setwd(pasta_trabalho)
+    }
     mensagem <- NULL
     saida <- capture.output(tryCatch(eval(codigo, e), error = function(err) mensagem <<- conditionMessage(err)))
     stopifnot(identical(vapply(anteriores, modulo$sha256_arquivo, character(1)), hashes),
       identical(list.files(d, pattern = "^\\.import-mds-csv-", all.files = TRUE), ".import-mds-csv-alheio.tmp"))
     if (!is.null(ocupar)) stopifnot(identical(hash_ocupado, modulo$sha256_arquivo(destinos[[ocupar]])))
-    list(ambiente = e, erro = mensagem, saida = saida, diretorio = d)
+    list(ambiente = e, erro = mensagem, saida = saida, diretorio = d,
+         destinos_previstos = destinos, pasta_trabalho = pasta_trabalho)
   }
-  artefatos <- function(resultado) resultado$ambiente$destinos
+  artefatos <- function(resultado) {
+    if (is.null(resultado$ambiente$destinos)) resultado$destinos_previstos else resultado$ambiente$destinos
+  }
   sucesso <- function(r) {
     stopifnot(is.null(r$erro), r$ambiente$chamadas == 1L, all(file.exists(unlist(artefatos(r)))),
       any(grepl("Arquivo gerado:", r$saida, fixed = TRUE)))
@@ -129,7 +154,7 @@ local({
     identical(r$ambiente$dados_final$IDADE, c("18", "60", NA, NA, "17", "100", NA, "0", NA, "60")),
     identical(r$ambiente$parametros_coleta, list(year_start = 2020, year_end = 2024, month_start = 2,
       month_end = 11, uf = "MA", information_system = "SIM-DO", stop_on_error = TRUE)),
-    j$versao_esquema == "1.0.0", j$cobertura_datasus == "nao_verificada", j$publicacao$situacao == "concluida",
+    j$versao_esquema == "1.1.0", j$cobertura_datasus == "nao_verificada", j$publicacao$situacao == "concluida",
     j$arquivos$principal$registros == 10L, j$arquivos$naturalidade$registros == 7L,
     j$metadados$consulta$periodo$month_start == 2L, j$metadados$consulta$periodo$month_end == 11L,
     is.null(j$metadados$consulta$filtros$idade_min), is.null(j$metadados$consulta$filtros$idade_max),
@@ -160,6 +185,13 @@ local({
     identical(j$arquivos$principal$sha256, modulo$sha256_arquivo(artefatos(r)$principal)))
   cat("OK: coleta única simulada, três artefatos, bytes legados, 14 campos, datas/idades, duplicatas, contagens e posições explícitas\n")
 
+  fora <- executar(fora_raiz = TRUE)
+  sucesso(fora)
+  stopifnot(!dir.exists(file.path(fora$pasta_trabalho, "Dados")),
+    identical(fora$ambiente$raiz_projeto, fora$diretorio),
+    identical(bytes(artefatos(fora)$principal), bytes(artefatos(r)$principal)))
+  cat("OK: fluxo completo simulado iniciado em outra pasta preserva saída na raiz do projeto\n")
+
   # Três regras no fluxo completo, após exclusões por idade/CID/sexo/raça.
   padronizada <- base[rep(1L, 9L), ]; rownames(padronizada) <- NULL
   padronizada$NATURAL <- c("44", "821", "73", "81", "44", "81", "44", "73", "81")
@@ -179,7 +211,7 @@ local({
     identical(unlist(j$contagens$naturalidade$antes_filtros, use.names = FALSE), c(9L, 6L, 3L, 0L, 0L)),
     identical(unlist(j$contagens$naturalidade$apos_demais_filtros, use.names = FALSE), c(5L, 4L, 1L, 0L, 0L)),
     j$contagens$etarias$apos_filtro_etario == 8L, j$contagens$etarias$apos_demais_filtros == 5L,
-    ncol(r$ambiente$dados_final) == 14L, j$versao_esquema == "1.0.0")
+    ncol(r$ambiente$dados_final) == 14L, j$versao_esquema == "1.1.0")
   cat("OK: 44 permanece ambíguo no auxiliar; 73/81 rastreáveis sem ambiguidade, posições e contagens após filtros\n")
 
   r <- executar(c(argumentos, "--idade_min", "18"))
@@ -240,6 +272,11 @@ local({
     stopifnot(grepl("já existe", r$erro, fixed = TRUE), r$ambiente$chamadas == 0L,
       !any(grepl("Arquivo gerado:", r$saida, fixed = TRUE)))
   }
+  for (f in c("criar_dados", "criar_extracao", "criar_logs")) {
+    r <- executar(falha = f)
+    stopifnot(!is.null(r$erro), r$ambiente$chamadas == 0L,
+      !any(file.exists(unlist(artefatos(r)))), !any(grepl("Arquivo gerado:", r$saida, fixed = TRUE)))
+  }
   for (f in c("coleta", "escrita", "apos_principal", "apos_auxiliar", "atributo", "posicoes", "contagens", "descricao")) {
     r <- executar(falha = f)
     stopifnot(!is.null(r$erro), r$ambiente$chamadas == 1L,
@@ -258,9 +295,13 @@ local({
   # Processo R real, mas com a chamada de coleta substituída no seu ambiente.
   for (f in c("sucesso", "conflito", "escrita", "apos_principal")) {
     d <- projeto(); saveRDS(entrada, file.path(d, "entrada.rds"))
-    principal <- file.path(d, "dados_SIM-DO_MA_2020_2024_I21.csv")
-    destino_json <- sub(".csv", "_relatorio.json", principal, fixed = TRUE)
-    if (f == "conflito") writeLines("resultado anterior", destino_json)
+    pasta <- file.path(d, "Dados", "dados_SIM-DO_MA_2020_2024_I21")
+    principal <- file.path(pasta, "dados_SIM-DO_MA_2020_2024_I21.csv")
+    destino_json <- file.path(pasta, "logs", "dados_SIM-DO_MA_2020_2024_I21_relatorio.json")
+    if (f == "conflito") {
+      dir.create(dirname(destino_json), recursive = TRUE)
+      writeLines("resultado anterior", destino_json)
+    }
     runner <- c(paste0("setwd(", encodeString(d, quote = '"'), ")"),
       "e <- new.env(parent=globalenv())",
       "e$fetch_datasus <- function(...) {writeLines('simulada', 'coleta_chamada'); readRDS('entrada.rds')}")

@@ -66,10 +66,11 @@ adicao_orquestracao <- vapply(prefixo_novo, function(expr) {
       identical(expr, quote(if (!nzchar(Sys.which("sha256sum"))) stop("Utilitário sha256sum indisponível."))) ||
       (identical(expr[[1L]], as.name("<-")) &&
          as.character(expr[[2L]]) %in% c("idade_min", "idade_max", "limites_idade",
-                                       "nome_arquivo", "caminho_arquivo", "destinos", "metadados"))
+                                       "nome_arquivo", "caminho_arquivo", "destinos", "metadados",
+                                       "localizar_raiz_projeto", "raiz_projeto", "estrutura_saida"))
   )
 }, logical(1))
-stopifnot(sum(adicao_orquestracao) == 12L)
+stopifnot(sum(adicao_orquestracao) == 15L)
 stopifnot(identical(
   codigo_base[seq_len(indice_despacho(codigo_base) - 1L)],
   prefixo_novo[!adicao_orquestracao]
@@ -78,7 +79,8 @@ stopifnot(identical(
 # são comparados com write.csv nos testes específicos de exportação.
 stopifnot(any(vapply(codigo_novo, function(expr) {
   identical(expr, quote(relatorio <- publicar_resultado_auditado(
-    dados_final, auditoria_saida, caminho_arquivo, metadados, contagens
+    dados_final, auditoria_saida, caminho_arquivo, metadados, contagens,
+    diretorio_logs = estrutura_saida$logs
   )))
 }, logical(1))))
 

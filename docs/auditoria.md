@@ -1,9 +1,67 @@
-# Infraestrutura de auditoria persistente — esquema 1.0.0
+# Infraestrutura de auditoria persistente — esquemas 1.0.0 e 1.1.0
 
 O fluxo SIM de `R/coletar_dados.R` utiliza esta infraestrutura para produzir
 principal, auxiliar e relatório final em uma única execução. Os módulos continuam
 reutilizáveis: carregar `R/comum/exportacao.R` e depois `R/comum/auditoria.R` no
 mesmo ambiente. O processamento epidemiológico permanece em `R/sistemas/sim.R`.
+
+## Organização das novas saídas
+
+O orquestrador resolve a raiz pela localização real de `R/coletar_dados.R`,
+inclusive via `Rscript`, `source()` ou `sys.source()`. Não usa o diretório atual
+como raiz implícita nem grava caminhos específicos do computador no relatório.
+A interface Python passa o caminho absoluto do script, calculado a partir de
+`app.py`; pode ser iniciada de outra pasta por `python3 /caminho/Import_MDS/app.py`.
+
+O nome principal continua sendo construído por `construir_nome_csv()`. Para
+`dados_SIM-DO_MA_2014_2014_I21_idade_18mais.csv`, a disposição de novas extrações é:
+
+```text
+Dados/
+├── .gitkeep
+└── dados_SIM-DO_MA_2014_2014_I21_idade_18mais/
+    ├── dados_SIM-DO_MA_2014_2014_I21_idade_18mais.csv
+    └── logs/
+        ├── dados_SIM-DO_MA_2014_2014_I21_idade_18mais_auditoria_naturalidade.csv
+        └── dados_SIM-DO_MA_2014_2014_I21_idade_18mais_relatorio.json
+```
+
+O exemplo descreve a nomenclatura; os resultados históricos não são migrados.
+Cada conjunto continua com somente três artefatos. `logs/` contém o auxiliar de
+naturalidade e o marcador JSON, sem um novo arquivo de log de console.
+`Dados/.gitkeep` mantém a pasta no clone. As extrações em `Dados/` são ignoradas
+pelo Git, assim como relatórios de saída com padrão `dados_*_relatorio.json` na
+raiz; os demais arquivos JSON não são ignorados indiscriminadamente.
+
+Antes da coleta, `preparar_diretorio_extracao()` cria `Dados/` se necessário e
+reserva a pasta da extração com `mkdir` exclusivo. Pasta já existente, mesmo
+vazia, arquivo ou link no destino provocam erro, sem reutilização ou mistura.
+Somente o vencedor da reserva pode avançar; os destinos dos três arquivos são
+conferidos em seguida, ainda antes de `fetch_datasus()`. Links simbólicos no
+diretório `Dados/`, na pasta da extração ou em `logs/` não são aceitos.
+
+## Base dos caminhos e compatibilidade
+
+No esquema histórico `1.0.0`, `arquivos.*.nome` contém somente nomes simples e
+os CSVs são resolvidos ao lado do JSON, como antes. Nenhum relatório histórico
+precisa ser reescrito ou movido.
+
+No esquema `1.1.0`, a base de resolução é **o diretório que contém o JSON**:
+`publicacao.base_caminhos = "diretorio_relatorio"` e
+`publicacao.organizacao = "extracao_logs"`. O principal é referenciado por
+`../<nome-base>.csv`, e o auxiliar por `<nome-base>_auditoria_naturalidade.csv`.
+Os nomes físicos não mudam e não há caminhos absolutos no contrato de artefatos.
+
+O consumidor aceita apenas essa subida única do principal, sem outros componentes
+de caminho. O auxiliar deve ser um nome simples derivado do principal; o JSON
+deve estar em `logs/` na pasta com o nome-base da extração. Caminhos absolutos,
+subidas adicionais, subpastas arbitrárias e links para artefatos externos são
+rejeitados. O conjunto inteiro pode ser transportado preservando essa estrutura.
+
+A mudança de base é incompatível com o contrato de resolução anterior, por isso
+novas saídas organizadas usam `1.1.0`. Consumidores que aceitam apenas `1.0.0`
+precisam ser atualizados. O consumidor atualizado suporta as duas versões;
+as demais validações de contagens, posições, bytes, SHA-256 e 14 colunas permanecem.
 
 ## Integração SIM
 
@@ -48,8 +106,11 @@ JSON já pode existir nessa etapa, consumidores devem sempre validá-lo novament
   retorna commit, branch e indicação de alterações locais, ou NULL. O chamador
   fornece esse resultado ao construtor; não há inferência sobre qual projeto
   um diretório de trabalho arbitrário representa.
-- `destinos_resultado_auditado(destino_csv)` determina e verifica TODOS os
-  destinos. É usado antes da coleta pelo orquestrador SIM. Não cria arquivos.
+- `preparar_diretorio_extracao(raiz_projeto, nome_csv)` reserva exclusivamente
+  a pasta da extração e cria `logs/`. Retorna `diretorio`, `logs` e `principal`.
+- `destinos_resultado_auditado(destino_csv, diretorio_logs = NULL)` determina e
+  verifica TODOS os destinos. Não cria arquivos. Sem `diretorio_logs`, preserva
+  o contrato anterior; com ele, exige a organização descrita acima.
 - `validar_contagens_auditoria(contagens, total_final)` recebe listas opcionais
   `etarias`, `datas`, `naturalidade`, com os contratos atuais dos atributos
   `contagens_*` do SIM. Cada grupo fornecido precisa estar completo. Reconcilia
@@ -58,7 +119,9 @@ JSON já pode existir nessa etapa, consumidores devem sempre validá-lo novament
 - `validar_auditoria_naturalidade(auditoria, total_principal)` valida o esquema,
   textos/classificações e posições inteiras únicas entre 1 e o total final.
 - `publicar_resultado_auditado(dados, auditoria, destino_csv, metadados,
-  contagens, colunas_principal)` prepara, verifica e publica o conjunto.
+  contagens, colunas_principal, diretorio_logs = NULL)` prepara, verifica e publica
+  o conjunto. Sem `diretorio_logs`, mantém a disposição histórica e o esquema
+  `1.0.0`; com ele, utiliza a estrutura extração/logs e `1.1.0`.
   Retorna invisivelmente o relatório somente após a publicação do JSON. Falhas
   são erros R; o chamador não deve capturá-los para anunciar sucesso.
 - `verificar_resultado_auditado(caminho_json, id_execucao = NULL)` é a porta de
@@ -114,7 +177,9 @@ respectivamente, com situação `inequivoca` e motivo
 padronizações rastreáveis, sem contar como ambiguidades geográficas. São regras
 de apresentação aprovadas do projeto; a referência instalada não é alterada.
 Não há conversão numérica, remoção de espaços ou de zeros dos códigos. O esquema
-de campos do auxiliar e a versão JSON `1.0.0` permanecem iguais. Consumidores com
+de campos do auxiliar permanece igual; essa padronização não muda, por si só,
+a versão JSON. A disposição física dos artefatos define `1.0.0` ou `1.1.0`.
+Consumidores com
 o validador anterior precisam ser atualizados para aceitar a descrição do caso 44;
 os artefatos históricos continuam aceitos pelo validador atualizado.
 
@@ -137,7 +202,9 @@ informações vinculáveis; controle o acesso ao conjunto conforme o uso cientí
 
 ## Relatório JSON
 
-`versao_esquema = "1.0.0"`, `id_execucao` e `metadados.id_execucao` coincidem.
+`versao_esquema` é `"1.1.0"` nas novas extrações organizadas, ou `"1.0.0"` no
+contrato anterior de publicação no mesmo diretório. `id_execucao` e
+`metadados.id_execucao` coincidem.
 `metadados` contém consulta solicitada, UF, período, parâmetros/filtros efetivos,
 início da execução (quando informado) e versões. `horarios` registra preparação
 e conferência em UTC; a conferência antecede a publicação do marcador, não é
@@ -169,8 +236,10 @@ Publicação: principal → auxiliar → conferência dos CSVs publicados → JS
 O horário de conferência é escrito em um novo temporário JSON exclusivo e
 validado. Cada publicação usa hard link sem substituição, sem fallback de
 rename/cópia. Conflitos posteriores à verificação inicial continuam protegidos.
-Execuções concorrentes com os mesmos destinos disputam primeiro o principal;
-a que perder não publica seus arquivos seguintes.
+Na organização nova, execuções com o mesmo nome disputam primeiro a reserva da
+pasta, antes da coleta. A proteção por hard link continua ativa para conflitos
+de arquivo surgidos depois dessa reserva. No contrato legado, execuções disputam
+primeiro o principal; a que perder não publica seus arquivos seguintes.
 
 Não há atomicidade entre arquivos. Se ocorrer erro antes da publicação do JSON,
 nenhum marcador próprio é publicado; CSVs definitivos já publicados ficam preservados. Um marcador
@@ -179,6 +248,20 @@ Somente temporários explicitamente criados pela execução são limpos. Não h�
 remoção automática de definitivos, retomada nem recuperação automática. Uma nova
 tentativa com os mesmos destinos ocupados falha. Conjuntos sem JSON validado são
 incompletos e exigem decisão manual antes do reaproveitamento.
+
+Falhas de criação de diretórios também são propagadas. Não removemos diretórios
+automaticamente, nem mesmo os recém-criados que ficaram vazios. Se a coleta ou a
+publicação falhar, a pasta permanece reservada e uma nova execução com o mesmo
+nome será recusada. Inspecione e preserve o conjunto incompleto antes de decidir
+manualmente seu destino; não basta criar ou editar um JSON para declará-lo válido.
+
+Para identificar uma extração concluída, carregue os dois módulos compartilhados
+no mesmo ambiente e execute
+`verificar_resultado_auditado("Dados/<extracao>/logs/<extracao>_relatorio.json")`.
+Esse caminho do exemplo é relativo à pasta de trabalho do consumidor; depois de
+localizado o JSON, seus CSVs são resolvidos relativamente ao próprio relatório.
+Somente a existência do JSON não comprova a conclusão: ele e os dois arquivos
+referenciados precisam passar pela validação. Cobertura DATASUS segue não verificada.
 
 Interrupção abrupta (SIGKILL/queda de energia) pode deixar temporários. Não há
 fsync ou garantia contra perda de energia. Mudanças nos arquivos depois da
@@ -203,3 +286,12 @@ substituída no ambiente do script. O processador e o pacote instalados não sã
 modificados. Compara posições, valores, contagens e bytes esperados e executa
 também processos R filhos para verificar sucesso e códigos de saída de falhas.
 CSV histórico e temporário alheio usados na suíte são exclusivamente sintéticos.
+
+`TZ=UTC Rscript --vanilla tests/test_organizacao_saida.R` cobre a nova organização,
+leitura das duas versões, bytes equivalentes, diretórios com espaços, falhas de
+criação/publicação, tentativas de escapar da base autorizada, links, execução de
+Rscript a partir de outra pasta e regras do Git. Dois processos Linux reais
+disputam uma reserva de diretório; isso demonstra exclusividade nesse cenário,
+sem representar testes de estresse ou proteção contra alterações maliciosas do
+sistema de arquivos. Os testes Python simulam o subprocesso ao conferir o caminho
+do script com outro diretório de trabalho.

@@ -159,7 +159,8 @@ local({
   dir_cli <- file.path(diretorio, "projeto")
   dir.create(file.path(dir_cli, "R", "comum"), recursive = TRUE)
   dir.create(file.path(dir_cli, "R", "sistemas"), recursive = TRUE)
-  stopifnot(file.copy(modulo_arquivo, file.path(dir_cli, "R", "comum", "exportacao.R")),
+  stopifnot(file.copy(file.path(raiz, "R", "coletar_dados.R"), file.path(dir_cli, "R", "coletar_dados.R")),
+            file.copy(modulo_arquivo, file.path(dir_cli, "R", "comum", "exportacao.R")),
             file.copy(file.path(raiz, "R", "comum", "auditoria.R"), file.path(dir_cli, "R", "comum", "auditoria.R")),
             file.copy(file.path(raiz, "R", "sistemas", "sim.R"), file.path(dir_cli, "R", "sistemas", "sim.R")))
   codigo <- parse(file = file.path(raiz, "R", "coletar_dados.R"))
@@ -175,8 +176,9 @@ local({
     setwd(dir_cli)
     ambiente <- new.env(parent = globalenv())
     ambiente$commandArgs <- function(trailingOnly = FALSE) {
-      c("--system", "SIM-DO", "--uf", "MA", "--year_start", "2020", "--year_end", "2024",
+      args <- c("--system", "SIM-DO", "--uf", "MA", "--year_start", "2020", "--year_end", "2024",
         "--cid", "I21", "--idade_min", "18", "--idade_max", "59")
+      if (trailingOnly) args else c("Rscript", paste0("--file=", file.path(dir_cli, "R/coletar_dados.R")), args)
     }
     ambiente$fetch_datasus <- function(...) stop("Coleta proibida nos testes.")
     invisible(capture.output(eval(prefixo, envir = ambiente)))
@@ -184,11 +186,11 @@ local({
   }
   ambiente <- executar_prefixo()
   stopifnot(identical(ambiente$nome_arquivo, "dados_SIM-DO_MA_2020_2024_I21_idade_18-59.csv"),
-            identical(ambiente$caminho_arquivo, file.path(dir_cli, ambiente$nome_arquivo)),
+            identical(ambiente$caminho_arquivo, file.path(dir_cli, "Dados", sub("[.]csv$", "", ambiente$nome_arquivo), ambiente$nome_arquivo)),
             !file.exists(ambiente$caminho_arquivo))
   writeLines("resultado anterior", ambiente$caminho_arquivo)
   digest <- hash(ambiente$caminho_arquivo)
-  stopifnot(grepl("Destino CSV já existe", erro(executar_prefixo()), fixed = TRUE),
+  stopifnot(grepl("Diretório da extração já existe", erro(executar_prefixo()), fixed = TRUE),
             identical(hash(ambiente$caminho_arquivo), digest))
   cat("OK: caminho final e conflito inicial determinados antes do nó de fetch\n")
 

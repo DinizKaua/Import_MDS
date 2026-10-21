@@ -5,9 +5,11 @@ Executar da raiz: python3 -B -m unittest discover -s tests -p 'test_cli_*.py' -v
 
 import contextlib
 import io
+import os
 from pathlib import Path
 import runpy
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -21,7 +23,7 @@ class TestFiltrosEtariosCLI(unittest.TestCase):
 
     def argumentos(self, *idades):
         return [
-            "Rscript", "R/coletar_dados.R",
+            "Rscript", str(Path(app.__file__).resolve().parent / "R" / "coletar_dados.R"),
             "--system", "SIM-DO",
             "--year_start", "2020", "--year_end", "2024",
             "--month_start", "1", "--month_end", "12",
@@ -121,7 +123,7 @@ class TestFiltrosEtariosCLI(unittest.TestCase):
         ])
         self.assertEqual(status, 0)
         executar_r.assert_called_once_with([
-            "Rscript", "R/coletar_dados.R", "--system", "SIH-RD",
+            "Rscript", str(Path(app.__file__).resolve().parent / "R" / "coletar_dados.R"), "--system", "SIH-RD",
             "--year_start", "2021", "--year_end", "2022",
             "--month_start", "3", "--month_end", "8", "--uf", "ALL",
             "--sexo", "Feminino", "--cid", "C50", "--raca", "Indigena", "--idade_max", "17",
@@ -172,6 +174,21 @@ class TestFiltrosEtariosCLI(unittest.TestCase):
                     runpy.run_path(str(Path(app.__file__)), run_name="__main__")
                 self.assertEqual(encerramento.exception.code, esperado)
                 executar_r.assert_called_once_with(self.argumentos(), check=True)
+
+    def test_execucao_fora_da_raiz_preserva_caminho_do_script(self):
+        anterior = Path.cwd()
+        try:
+            with tempfile.TemporaryDirectory(prefix="import mds cli ") as pasta:
+                os.chdir(pasta)
+                status, executar_r, _ = self.executar(self.entradas("18", "59"))
+                self.assertEqual(status, 0)
+                executar_r.assert_called_once_with(
+                    self.argumentos("--idade_min", "18", "--idade_max", "59"), check=True,
+                )
+                self.assertTrue(Path(executar_r.call_args.args[0][1]).is_absolute())
+                self.assertTrue(Path(executar_r.call_args.args[0][1]).is_file())
+        finally:
+            os.chdir(anterior)
 
 
 if __name__ == "__main__":

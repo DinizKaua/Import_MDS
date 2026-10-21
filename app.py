@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 
 # -------------------------------
 #   Tipo de sistema
@@ -163,7 +164,7 @@ def main():
     print("\nExecutando coleta...\n")
 
     argumentos = [
-        "Rscript", "R/coletar_dados.R",
+        "Rscript", str(Path(__file__).resolve().parent / "R" / "coletar_dados.R"),
         "--system", sistema,
         "--year_start", ano_inicio,
         "--year_end", ano_fim,
