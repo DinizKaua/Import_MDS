@@ -3,3 +3,6 @@
 /Dados/*
 !/Dados/.gitkeep
 /dados_*_relatorio.json
+/.biblioteca-R/
+__pycache__/
+*.pyc
