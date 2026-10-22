@@ -24,6 +24,13 @@ Python **3.12.3**, Bash **5.2.21**, R **4.3.3** e microdatasus **3.0.0**.
 Ubuntu e Mint são alvos compatíveis, mas não foram testados separadamente nesta
 etapa. Windows e macOS nativos não são suportados pelos scripts.
 
+**Validação da instalação:** os scripts foram testados no Zorin OS 18.1, com
+Python 3.12.3 e R 4.3.3, utilizando dependências já instaladas. Os cenários de
+instalação de pacotes e falhas foram testados com simulações. A instalação
+completa em um ambiente Linux limpo, com obtenção real das dependências pela
+internet, ainda não foi validada. Veja os detalhes técnicos em
+[DEPENDENCIAS.md](DEPENDENCIAS.md#evidências-e-limites).
+
 Você precisa ter Python ≥3.8, R ≥4.1 e ferramentas básicas do Linux. Não é
 necessário conhecer R, instalar bibliotecas Python, usar `pip` ou ter Git no
 procedimento com ZIP. As bibliotecas R podem ser instaladas pela configuração,
